@@ -316,11 +316,113 @@ class FileMakerService {
         }
     }
     
+    // MARK: - Check if Email Exists
+    func emailExists(_ email: String) async throws -> Bool {
+        let databaseName = FileMakerConfig.databaseName
+        guard databaseName != "YOUR_DATABASE_NAME" else {
+            throw FileMakerError.configurationError("Database name not configured. Please update FileMakerConfig.swift")
+        }
+        
+        // Create a session for this check
+        var sessionCreated = false
+        if sessionToken == nil {
+            _ = try await authenticate()
+            sessionCreated = true
+        }
+        
+        guard let url = URL(string: "\(FileMakerConfig.serverURL)/fmi/data/\(apiVersion)/databases/\(databaseName)/layouts/\(FileMakerConfig.layoutName)/_find") else {
+            throw FileMakerError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        if let token = sessionToken {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        
+        // Search for email
+        let findQuery: [String: Any] = [
+            "query": [
+                [
+                    FileMakerConfig.emailFieldName: "==\(email)"
+                ]
+            ],
+            "limit": 1
+        ]
+        
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: findQuery)
+        } catch {
+            throw FileMakerError.encodingError
+        }
+        
+        do {
+            print("🔍 Checking if email exists: \(email)")
+            let (data, response) = try await URLSession.shared.data(for: request)
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw FileMakerError.invalidResponse
+            }
+            
+            print("   Check Response Status: \(httpResponse.statusCode)")
+            
+            if sessionCreated {
+                await clearSession()
+            }
+            
+            if httpResponse.statusCode == 200 {
+                let findResponse = try JSONDecoder().decode(FileMakerFindResponse.self, from: data)
+                
+                if let dataInfo = findResponse.response?.dataInfo,
+                   dataInfo.foundCount > 0 {
+                    print("   ⚠️ Email already exists")
+                    return true
+                } else {
+                    print("   ✅ Email is available")
+                    return false
+                }
+            } else {
+                // If we get 401 (not found error), email doesn't exist
+                if let errorData = try? JSONDecoder().decode(FileMakerFindResponse.self, from: data),
+                   let firstMessage = errorData.messages.first {
+                    // Error 401 means "No records match the request"
+                    if firstMessage.code == "401" {
+                        print("   ✅ Email is available (no matching records)")
+                        return false
+                    }
+                }
+                
+                // For other errors, throw them
+                throw FileMakerError.httpError(statusCode: httpResponse.statusCode)
+            }
+        } catch let error as FileMakerError {
+            if sessionCreated {
+                await clearSession()
+            }
+            throw error
+        } catch {
+            if sessionCreated {
+                await clearSession()
+            }
+            throw FileMakerError.networkError(error.localizedDescription)
+        }
+    }
+    
     // MARK: - Create Record (Sign Up)
     func createUser(firstName: String, lastName: String, email: String, password: String) async throws -> Bool {
         let databaseName = FileMakerConfig.databaseName
         guard databaseName != "YOUR_DATABASE_NAME" else {
             throw FileMakerError.configurationError("Database name not configured. Please update FileMakerConfig.swift")
+        }
+        
+        // First, check if email already exists
+        print("🔍 Checking if email already exists...")
+        let exists = try await emailExists(email)
+        if exists {
+            print("❌ Email already exists: \(email)")
+            throw FileMakerError.emailAlreadyExists
         }
         
         // Ensure we have a session token
@@ -457,6 +559,7 @@ enum FileMakerError: LocalizedError {
     case authenticationFailed
     case invalidCredentials
     case userNotFound
+    case emailAlreadyExists
     case networkError(String)
     case httpError(statusCode: Int)
     case apiError(code: String, message: String)
@@ -476,6 +579,8 @@ enum FileMakerError: LocalizedError {
             return "Invalid email or password"
         case .userNotFound:
             return "User does not exist. Please check your email address and try again."
+        case .emailAlreadyExists:
+            return "This email is already registered. Please use a different email or try signing in."
         case .networkError(let message):
             return "Network error: \(message)"
         case .httpError(let statusCode):

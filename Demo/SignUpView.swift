@@ -42,7 +42,7 @@ struct SignUpView: View {
                             .frame(height: max(geometry.safeAreaInsets.top, 40))
                         
                         // Header Section
-                        VStack(spacing: 16) {
+                        VStack(spacing: 0) {
                             // App Icon/Logo
                             ZStack {
                                 Circle()
@@ -56,17 +56,17 @@ struct SignUpView: View {
                                             endPoint: .bottomTrailing
                                         )
                                     )
-                                    .frame(width: 100, height: 100)
+                                    .frame(width: 70, height: 70)
                                     .shadow(color: .black.opacity(0.1), radius: 20, x: 0, y: 10)
                                 
                                 Image(systemName: "person.badge.plus.fill")
-                                    .font(.system(size: 60))
+                                    .font(.system(size: 40))
                                     .foregroundStyle(.white)
                             }
                             
-                            VStack(spacing: 8) {
+                            VStack(spacing: 4) {
                                 Text("Create Account")
-                                    .font(.system(size: 34, weight: .bold, design: .default))
+                                    .font(.system(size: 30, weight: .bold, design: .default))
                                     .foregroundStyle(.primary)
                                 
                                 Text("Sign up to get started")
@@ -74,10 +74,10 @@ struct SignUpView: View {
                                     .foregroundStyle(.secondary)
                             }
                         }
-                        .padding(.bottom, 44)
+                        .padding(.bottom, 20)
                         
                         // Form Card
-                        VStack(spacing: 20) {
+                        VStack(spacing: 10) {
                             // First Name Field
                             VStack(alignment: .leading, spacing: 8) {
                                 Text("First Name")

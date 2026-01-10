@@ -75,7 +75,7 @@ struct LoginView: View {
                             
                             VStack(spacing: 8) {
                                 Text("Welcome Back")
-                                    .font(.system(size: 34, weight: .bold, design: .default))
+                                    .font(.system(size: 30, weight: .bold, design: .default))
                                     .foregroundStyle(.primary)
                                 
                                 Text("Sign in to continue")
