@@ -8,6 +8,7 @@
 import SwiftUI
 
 struct HomeView: View {
+    @StateObject private var userSession = UserSession.shared
     @Environment(\.colorScheme) var colorScheme
     @State private var searchText: String = ""
     
@@ -46,16 +47,48 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Welcome Back!")
-                        .font(.system(size: 28, weight: .bold))
-                        .foregroundStyle(.primary)
-                    
-                    Text("Here's what's happening today")
-                        .font(.system(size: 15))
-                        .foregroundStyle(.secondary)
+                    if let user = userSession.currentUser {
+                        Text("Welcome Back, \(user.firstName)!")
+                            .font(.system(size: 28, weight: .bold))
+                            .foregroundStyle(.primary)
+                        
+                        Text("Good to see you again")
+                            .font(.system(size: 15))
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Welcome Back!")
+                            .font(.system(size: 28, weight: .bold))
+                            .foregroundStyle(.primary)
+                        
+                        Text("Here's what's happening today")
+                            .font(.system(size: 15))
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 
                 Spacer()
+                
+                // User Avatar
+                if let user = userSession.currentUser {
+                    ZStack {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color.blue.opacity(0.8),
+                                        Color.purple.opacity(0.6)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 50, height: 50)
+                        
+                        Text(getInitials(from: user))
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(.white)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -193,6 +226,13 @@ struct HomeView: View {
                     .fill(Color(.secondarySystemGroupedBackground))
             )
         }
+    }
+    
+    // MARK: - Helper Functions
+    private func getInitials(from user: User) -> String {
+        let firstInitial = user.firstName.prefix(1).uppercased()
+        let lastInitial = user.lastName.prefix(1).uppercased()
+        return "\(firstInitial)\(lastInitial)"
     }
 }
 

@@ -8,13 +8,13 @@
 import SwiftUI
 
 struct LoginView: View {
+    @StateObject private var userSession = UserSession.shared
     @State private var email: String = ""
     @State private var password: String = ""
     @State private var isPasswordVisible: Bool = false
     @State private var isLoading: Bool = false
     @State private var showErrorAlert: Bool = false
     @State private var errorMessage: String = ""
-    @State private var isLoggedIn: Bool = false
     @State private var showSignUp: Bool = false
     @FocusState private var focusedField: Field?
     @Environment(\.colorScheme) var colorScheme
@@ -27,8 +27,8 @@ struct LoginView: View {
     
     var body: some View {
         Group {
-            if isLoggedIn {
-                MainTabView(isLoggedIn: $isLoggedIn)
+            if userSession.isLoggedIn {
+                MainTabView()
             } else if showSignUp {
                 SignUpView(showSignUp: $showSignUp)
             } else {
@@ -311,22 +311,19 @@ struct LoginView: View {
         Task {
             do {
                 print("🔄 Starting login attempt for: \(email)")
-                let success = try await FileMakerService.shared.loginUser(email: email, password: password)
+                let user = try await FileMakerService.shared.loginUser(email: email, password: password)
                 
                 await MainActor.run {
                     isLoading = false
+                    hapticFeedback.impactOccurred(intensity: 0.5)
+                    print("✅ Login successful for: \(user.fullName)")
                     
-                    if success {
-                        hapticFeedback.impactOccurred(intensity: 0.5)
-                        print("✅ Login successful for email: \(email)")
-                        // Reset fields
-                        email = ""
-                        password = ""
-                        // Navigate to home screen
-                        withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
-                            isLoggedIn = true
-                        }
-                    }
+                    // Save user to session
+                    userSession.login(user: user)
+                    
+                    // Reset fields
+                    email = ""
+                    password = ""
                 }
             } catch {
                 await MainActor.run {

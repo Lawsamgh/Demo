@@ -47,6 +47,8 @@ struct FileMakerFindResponse: Codable {
             struct FieldData: Codable {
                 let EmailAddress: String?
                 let account_password: String?
+                let first_name: String?
+                let last_name: String?
             }
         }
     }
@@ -156,7 +158,7 @@ class FileMakerService {
     }
     
     // MARK: - Find Records (Login)
-    func loginUser(email: String, password: String) async throws -> Bool {
+    func loginUser(email: String, password: String) async throws -> User {
         let databaseName = FileMakerConfig.databaseName
         guard databaseName != "YOUR_DATABASE_NAME" else {
             throw FileMakerError.configurationError("Database name not configured. Please update FileMakerConfig.swift")
@@ -222,13 +224,19 @@ class FileMakerService {
                 let findResponse = try JSONDecoder().decode(FileMakerFindResponse.self, from: data)
                 
                 if let dataInfo = findResponse.response?.dataInfo,
-                   dataInfo.foundCount > 0 {
+                   dataInfo.foundCount > 0,
+                   let userData = findResponse.response?.data?.first {
                     // User found with matching credentials
+                    let firstName = userData.fieldData.first_name ?? ""
+                    let lastName = userData.fieldData.last_name ?? ""
+                    
                     // Close session immediately to free up server connections
                     if sessionCreated {
                         await clearSession()
                     }
-                    return true
+                    
+                    // Return User object
+                    return User(firstName: firstName, lastName: lastName, email: email)
                 } else {
                     // No matching record found - close session
                     print("❌ User not found - No matching record in database")

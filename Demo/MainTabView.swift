@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct MainTabView: View {
-    @Binding var isLoggedIn: Bool
+    @StateObject private var userSession = UserSession.shared
     @State private var selectedTab: TabItem = .home
     
     enum TabItem: String, CaseIterable {
@@ -56,7 +56,7 @@ struct MainTabView: View {
                     Label("Activity", systemImage: TabItem.activity.icon)
                 }
             
-            ProfileView(isLoggedIn: $isLoggedIn)
+            ProfileView()
                 .tag(TabItem.profile)
                 .tabItem {
                     Label("Profile", systemImage: TabItem.profile.icon)
@@ -73,5 +73,5 @@ struct MainTabView: View {
 }
 
 #Preview {
-    MainTabView(isLoggedIn: .constant(true))
+    MainTabView()
 }
