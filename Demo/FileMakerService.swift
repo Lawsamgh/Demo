@@ -376,19 +376,42 @@ class FileMakerService {
                 print("   Response Body: \(preview)")
             }
             
-            if httpResponse.statusCode == 201 {
+            if httpResponse.statusCode == 200 || httpResponse.statusCode == 201 {
                 let createResponse = try JSONDecoder().decode(FileMakerCreateResponse.self, from: data)
                 
-                if createResponse.response?.recordId != nil {
-                    print("✅ User record created successfully (Record ID: \(createResponse.response?.recordId ?? "unknown"))")
-                    // Close session if we created it
+                print("   📊 Response decoded successfully")
+                print("   📊 Messages count: \(createResponse.messages.count)")
+                print("   📊 Record ID: \(createResponse.response?.recordId ?? "nil")")
+                
+                // HTTP 201 means the record was created successfully
+                // Check for error codes in messages (anything other than "0" is an error)
+                if let firstMessage = createResponse.messages.first {
+                    print("   📊 First message code: [\(firstMessage.code)]")
+                    print("   📊 First message text: \(firstMessage.message)")
+                    
+                    // Code "0" means success in FileMaker
+                    if firstMessage.code == "0" {
+                        // SUCCESS!
+                        print("✅ User record created successfully (Code: 0)")
+                        if sessionCreated {
+                            await clearSession()
+                        }
+                        return true
+                    } else {
+                        // ERROR - non-zero code
+                        print("❌ Create error: [\(firstMessage.code)] \(firstMessage.message)")
+                        if sessionCreated {
+                            await clearSession()
+                        }
+                        throw FileMakerError.apiError(code: firstMessage.code, message: firstMessage.message)
+                    }
+                } else {
+                    // No messages but 201 status = success
+                    print("✅ User record created successfully (No messages, HTTP 201)")
                     if sessionCreated {
                         await clearSession()
                     }
                     return true
-                } else if let firstMessage = createResponse.messages.first {
-                    print("❌ Create error: [\(firstMessage.code)] \(firstMessage.message)")
-                    throw FileMakerError.apiError(code: firstMessage.code, message: firstMessage.message)
                 }
             } else {
                 print("❌ Create request failed with status: \(httpResponse.statusCode)")
@@ -397,13 +420,17 @@ class FileMakerService {
                 if let errorData = try? JSONDecoder().decode(FileMakerCreateResponse.self, from: data),
                    let firstMessage = errorData.messages.first {
                     print("   FileMaker Error: [\(firstMessage.code)] \(firstMessage.message)")
+                    if sessionCreated {
+                        await clearSession()
+                    }
                     throw FileMakerError.apiError(code: firstMessage.code, message: firstMessage.message)
                 }
                 
+                if sessionCreated {
+                    await clearSession()
+                }
                 throw FileMakerError.httpError(statusCode: httpResponse.statusCode)
             }
-            
-            throw FileMakerError.authenticationFailed
         } catch let error as FileMakerError {
             if sessionCreated {
                 await clearSession()
@@ -454,6 +481,10 @@ enum FileMakerError: LocalizedError {
         case .httpError(let statusCode):
             return "Server error (Code: \(statusCode))"
         case .apiError(let code, let message):
+            // Don't show technical error for success code
+            if code == "0" {
+                return "Account successfully created"
+            }
             return "FileMaker Error [\(code)]: \(message)"
         case .encodingError:
             return "Failed to encode request data"
