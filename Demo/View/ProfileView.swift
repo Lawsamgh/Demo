@@ -109,17 +109,6 @@ struct ProfileView: View {
             
             VStack(spacing: 0) {
                 ProfileRow(
-                    icon: "person.fill",
-                    title: "Edit Profile",
-                    color: .blue
-                ) {
-                    // Handle edit profile
-                }
-                
-                Divider()
-                    .padding(.leading, 52)
-                
-                ProfileRow(
                     icon: "lock.fill",
                     title: "Change Password",
                     color: .orange
@@ -160,17 +149,6 @@ struct ProfileView: View {
                     color: .indigo
                 ) {
                     // Handle appearance
-                }
-                
-                Divider()
-                    .padding(.leading, 52)
-                
-                ProfileRow(
-                    icon: "questionmark.circle.fill",
-                    title: "Help & Support",
-                    color: .green
-                ) {
-                    // Handle help
                 }
                 
                 Divider()

@@ -15,4 +15,5 @@ struct User: Codable {
     var fullName: String {
         "\(firstName) \(lastName)"
     }
+    
 }
