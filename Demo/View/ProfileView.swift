@@ -116,6 +116,18 @@ struct ProfileView: View {
                     // Handle change password
                 }
                 
+                 Divider()
+                .padding(.leading, 52)
+            
+            ProfileRow(
+                icon: "coloncurrencysign.circle.fill",
+                title: "Change Currency",
+                color: .green
+            ) {
+                // Handle change currency
+            }
+            
+                
                 Divider()
                     .padding(.leading, 52)
                 
@@ -199,7 +211,7 @@ struct ProfileView: View {
     // MARK: - Version Info
     private var versionInfo: some View {
         VStack(spacing: 4) {
-            Text("Demo App")
+            Text("Wallet-Watch App")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
             

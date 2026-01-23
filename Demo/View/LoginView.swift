@@ -68,14 +68,14 @@ struct LoginView: View {
                                     .frame(width: 100, height: 100)
                                     .shadow(color: .black.opacity(0.1), radius: 20, x: 0, y: 10)
                                 
-                                Image(systemName: "person.circle.fill")
+                                Image(systemName: "cedisign.circle.fill")
                                     .font(.system(size: 60))
                                     .foregroundStyle(.white)
                             }
                             
                             VStack(spacing: 8) {
-                                Text("Welcome Back")
-                                    .font(.system(size: 30, weight: .bold, design: .default))
+                                Text("Wallet-Watch")
+                                    .font(.system(size: 30, weight: .regular, design: .default))
                                     .foregroundStyle(.primary)
                                 
                                 Text("Sign in to continue")
