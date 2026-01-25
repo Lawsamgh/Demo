@@ -276,7 +276,7 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("Top Categories")
-                    .font(.system(size: 22, weight: .bold))
+                    .font(.system(size: 18, weight: .bold))
                     .foregroundStyle(.primary)
                 
                 Spacer()
@@ -308,7 +308,7 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("Recent Transactions")
-                    .font(.system(size: 22, weight: .bold))
+                    .font(.system(size: 18, weight: .bold))
                     .foregroundStyle(.primary)
                 
                 Spacer()

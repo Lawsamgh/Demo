@@ -8,6 +8,7 @@
 import Foundation
 
 struct User: Codable {
+    let userID: String // PrimaryKey (recordId) from FileMaker
     let firstName: String
     let lastName: String
     let email: String
@@ -15,5 +16,4 @@ struct User: Codable {
     var fullName: String {
         "\(firstName) \(lastName)"
     }
-    
 }

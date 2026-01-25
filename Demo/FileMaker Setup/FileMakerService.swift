@@ -115,6 +115,13 @@ class FileMakerService {
         }
     }
     
+    /// Fetches categories for a specific user from FileMaker
+    func fetchCategories(userID: String) async throws -> [Category] {
+        return try await withSession { token in
+            try await self.performFetchCategories(userID: userID, token: token)
+        }
+    }
+    
     /// Checks if an email already exists in the database
     func emailExists(_ email: String) async throws -> Bool {
         return try await withSession { token in
@@ -233,10 +240,106 @@ class FileMakerService {
             
             let firstName = userData.fieldData.first_name ?? ""
             let lastName = userData.fieldData.last_name ?? ""
-            return User(firstName: firstName, lastName: lastName, email: email)
+            let userID = userData.recordId // Get the PrimaryKey (recordId)
+            print("✅ Login successful!")
+            print("📋 PrimaryKey (recordId) from test_table_login: '\(userID)'")
+            print("📋 PrimaryKey type: \(type(of: userID))")
+            print("📋 This PrimaryKey will be used to filter Category table by UserID field")
+            return User(userID: userID, firstName: firstName, lastName: lastName, email: email)
         } else {
             try handleErrorResponse(data: data, statusCode: httpResponse.statusCode)
             throw FileMakerError.userNotFound
+        }
+    }
+    
+    /// Fetches categories from FileMaker for a specific user
+    private func performFetchCategories(userID: String, token: String) async throws -> [Category] {
+        let endpoint = "layouts/\(FileMakerConfig.categoryLayoutName)/_find"
+        let url = try requestBuilder.buildURL(endpoint: endpoint)
+        
+        print("============================================================")
+        print("🔍 FETCHING CATEGORIES - DEBUG INFO")
+        print("============================================================")
+        print("📋 PrimaryKey from test_table_login: '\(userID)'")
+        print("📋 PrimaryKey type: String")
+        print("📋 Category Layout: \(FileMakerConfig.categoryLayoutName)")
+        print("📋 Category UserID Field: \(FileMakerConfig.categoryUserIDField)")
+        print("📋 This PrimaryKey will be used to filter Category.UserID field")
+        print("============================================================")
+        
+        // Try multiple query formats to handle different field types
+        // Format 1: Try as string with == operator (for text fields)
+        var queryFields: [String: Any] = [:]
+        
+        // UserID field - try as string first (most common for foreign keys)
+        queryFields[FileMakerConfig.categoryUserIDField] = "==\(userID)"
+        print("📤 Trying UserID as string: '==\(userID)'")
+        
+        // Add IsActive filter if configured
+        if FileMakerConfig.filterByIsActive {
+            queryFields[FileMakerConfig.categoryIsActiveField] = "==1" // Try as string first
+            print("📤 Trying IsActive as string: '==1'")
+        }
+        
+        let body = try requestBuilder.createFindQueryWithFields(fields: queryFields, limit: 100)
+        let request = requestBuilder.createRequest(url: url, method: "POST", body: body, sessionToken: token)
+        
+        // Log the request body for debugging
+        if let bodyData = request.httpBody,
+           let bodyString = String(data: bodyData, encoding: .utf8) {
+            print("📤 Full Category Query JSON: \(bodyString)")
+        }
+        
+        print("🔍 Sending request to FileMaker...")
+        let (data, response) = try await performRequest(request: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw FileMakerError.invalidResponse
+        }
+        
+        print("   Category Response Status: \(httpResponse.statusCode)")
+        logResponse(data: data)
+        
+        if httpResponse.statusCode == 200 {
+            let categoryResponse = try JSONDecoder().decode(FileMakerCategoryResponse.self, from: data)
+            
+            guard let dataInfo = categoryResponse.response?.dataInfo,
+                  let categoryRecords = categoryResponse.response?.data else {
+                print("⚠️ No categories found for user")
+                return []
+            }
+            
+            print("✅ Found \(categoryRecords.count) categories")
+            
+            // Convert FileMaker records to Category objects
+            let categories = categoryRecords.compactMap { record -> Category? in
+                guard let categoryName = record.fieldData.resolvedCategoryName,
+                      !categoryName.isEmpty else {
+                    print("⚠️ Skipping category record: Missing category name")
+                    return nil
+                }
+                
+                return Category(
+                    id: record.recordId,
+                    name: categoryName,
+                    icon: record.fieldData.resolvedIcon,
+                    color: record.fieldData.resolvedColor,
+                    userID: userID
+                )
+            }
+            
+            return categories
+        } else {
+            // Error 401 means "No records match the request" - return empty array
+            if let errorData = try? JSONDecoder().decode(FileMakerCategoryResponse.self, from: data),
+               let firstMessage = errorData.messages.first,
+               firstMessage.code == "401" {
+                print("   ✅ No categories found (no matching records)")
+                return []
+            }
+            
+            try handleErrorResponse(data: data, statusCode: httpResponse.statusCode)
+            throw FileMakerError.httpError(statusCode: httpResponse.statusCode)
         }
     }
     

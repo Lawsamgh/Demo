@@ -28,4 +28,14 @@ struct FileMakerConfig {
     static let passwordFieldName = "account_password"
     // Note: For sign up, also uses "FirstName" and "LastName" fields
     // Adjust these field names in FileMakerService.createUser if they differ in your database
+    
+    // Category Table Configuration
+    static let categoryLayoutName = "Category" // Update with your Category layout name
+    static let categoryTableName = "Category" // Update with your Category table name
+    static let categoryUserIDField = "UserID" // Field name that stores the user's PrimaryKey
+    static let categoryNameField = "CategoryName" // Field name for category name
+    static let categoryIconField = "Icon" // Field name for icon (optional)
+    static let categoryColorField = "Color" // Field name for color (optional)
+    static let categoryIsActiveField = "IsActive" // Field name for active status (optional)
+    static let filterByIsActive = true // Set to true if you want to only fetch active categories
 }

@@ -11,6 +11,7 @@ struct SettingView: View {
     @StateObject private var userSession = UserSession.shared
     @Environment(\.colorScheme) var colorScheme
     @State private var showLogoutAlert = false
+    @State private var showCategoryManagement = false
     
     var body: some View {
         NavigationStack {
@@ -25,6 +26,9 @@ struct SettingView: View {
                         
                         // Account Settings
                         accountSection
+                        
+                        // Manage Data Section
+                        manageDataSection
                         
                         // App Settings
                         settingsSection
@@ -49,6 +53,9 @@ struct SettingView: View {
             }
         } message: {
             Text("Are you sure you want to sign out?")
+        }
+        .sheet(isPresented: $showCategoryManagement) {
+            CategoryManagementView()
         }
     }
       
@@ -140,6 +147,32 @@ struct SettingView: View {
                     color: .purple
                 ) {
                     // Handle notifications
+                }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color(.secondarySystemGroupedBackground))
+            )
+        }
+    }
+    
+    // MARK: - Manage Data Section
+    private var manageDataSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Manage Data")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 4)
+            
+            VStack(spacing: 0) {
+                ProfileRow(
+                    icon: "folder.fill",
+                    title: "Categories",
+                    color: .blue
+                ) {
+                    let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+                    impactFeedback.impactOccurred()
+                    showCategoryManagement = true
                 }
             }
             .background(
