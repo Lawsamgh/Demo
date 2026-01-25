@@ -56,7 +56,7 @@ struct MainTabView: View {
                     Label("Activity", systemImage: TabItem.activity.icon)
                 }
             
-            ProfileView()
+            SettingView()
                 .tag(TabItem.settings)
                 .tabItem {
                     Label("Settings", systemImage: TabItem.settings.icon)

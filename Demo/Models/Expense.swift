@@ -1,0 +1,73 @@
+//
+//  Expense.swift
+//  Demo
+//
+//  Created by PGH_PICT_LAMPENE on 10/01/2026.
+//
+
+import Foundation
+
+struct Expense: Identifiable, Codable {
+    let id: UUID
+    let title: String
+    let amount: Double
+    let category: ExpenseCategory
+    let date: Date
+    let type: ExpenseType
+    let notes: String?
+    
+    init(id: UUID = UUID(), title: String, amount: Double, category: ExpenseCategory, date: Date = Date(), type: ExpenseType, notes: String? = nil) {
+        self.id = id
+        self.title = title
+        self.amount = amount
+        self.category = category
+        self.date = date
+        self.type = type
+        self.notes = notes
+    }
+}
+
+enum ExpenseType: String, Codable {
+    case income = "Income"
+    case expense = "Expense"
+}
+
+enum ExpenseCategory: String, Codable, CaseIterable {
+    case food = "Food"
+    case transport = "Transport"
+    case shopping = "Shopping"
+    case bills = "Bills"
+    case entertainment = "Entertainment"
+    case health = "Health"
+    case education = "Education"
+    case salary = "Salary"
+    case other = "Other"
+    
+    var icon: String {
+        switch self {
+        case .food: return "fork.knife"
+        case .transport: return "car.fill"
+        case .shopping: return "bag.fill"
+        case .bills: return "doc.text.fill"
+        case .entertainment: return "tv.fill"
+        case .health: return "heart.fill"
+        case .education: return "book.fill"
+        case .salary: return "dollarsign.circle.fill"
+        case .other: return "ellipsis.circle.fill"
+        }
+    }
+    
+    var color: String {
+        switch self {
+        case .food: return "orange"
+        case .transport: return "blue"
+        case .shopping: return "pink"
+        case .bills: return "red"
+        case .entertainment: return "purple"
+        case .health: return "green"
+        case .education: return "indigo"
+        case .salary: return "green"
+        case .other: return "gray"
+        }
+    }
+}

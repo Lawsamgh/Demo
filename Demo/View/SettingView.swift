@@ -1,5 +1,5 @@
 //
-//  ProfileView.swift
+//  SettingView.swift
 //  Demo
 //
 //  Created by PGH_PICT_LAMPENE on 10/01/2026.
@@ -7,7 +7,7 @@
 
 import SwiftUI
 
-struct ProfileView: View {
+struct SettingView: View {
     @StateObject private var userSession = UserSession.shared
     @Environment(\.colorScheme) var colorScheme
     @State private var showLogoutAlert = false
@@ -265,11 +265,11 @@ struct ProfileRow: View {
 }
 
 #Preview {
-    ProfileView()
+    SettingView()
         .preferredColorScheme(.light)
 }
 
 #Preview("Dark Mode") {
-    ProfileView()
+    SettingView()
         .preferredColorScheme(.dark)
 }
