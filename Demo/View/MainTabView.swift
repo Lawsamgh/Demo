@@ -15,14 +15,14 @@ struct MainTabView: View {
         case home = "Home"
         case search = "Search"
         case activity = "Activity"
-        case profile = "Profile"
+        case settings = "Settings"
         
         var icon: String {
             switch self {
             case .home: return "house.fill"
             case .search: return "magnifyingglass"
             case .activity: return "chart.bar.fill"
-            case .profile: return "person.circle.fill"
+            case .settings: return "gearshape.fill"
             }
         }
         
@@ -31,7 +31,7 @@ struct MainTabView: View {
             case .home: return "house.fill"
             case .search: return "magnifyingglass"
             case .activity: return "chart.bar.fill"
-            case .profile: return "person.circle.fill"
+            case .settings: return "gearshape.fill"
             }
         }
     }
@@ -57,9 +57,9 @@ struct MainTabView: View {
                 }
             
             ProfileView()
-                .tag(TabItem.profile)
+                .tag(TabItem.settings)
                 .tabItem {
-                    Label("Profile", systemImage: TabItem.profile.icon)
+                    Label("Settings", systemImage: TabItem.settings.icon)
                 }
         }
         .tint(.blue)

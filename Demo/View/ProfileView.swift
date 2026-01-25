@@ -39,7 +39,7 @@ struct ProfileView: View {
                     .padding(.vertical, 16)
                 }
             }
-            .navigationTitle("Profile")
+            .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.large)
         }
         .alert("Sign Out", isPresented: $showLogoutAlert) {
@@ -51,7 +51,7 @@ struct ProfileView: View {
             Text("Are you sure you want to sign out?")
         }
     }
-    
+      
     // MARK: - User Header
     private var userHeaderSection: some View {
         VStack(spacing: 16) {
@@ -98,12 +98,15 @@ struct ProfileView: View {
                 .fill(Color(.secondarySystemGroupedBackground))
         )
     }
+
+ 
+ 
     
     // MARK: - Account Section
     private var accountSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Account")
-                .font(.system(size: 22, weight: .semibold))
+                .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(.primary)
                 .padding(.horizontal, 4)
             
@@ -150,7 +153,7 @@ struct ProfileView: View {
     private var settingsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Settings")
-                .font(.system(size: 22, weight: .semibold))
+                .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(.primary)
                 .padding(.horizontal, 4)
             

@@ -7,94 +7,31 @@
 
 import Foundation
 
-// MARK: - FileMaker Data Models
-struct FileMakerAuthResponse: Codable {
-    let response: FileMakerResponse?
-    let messages: [FileMakerMessage]
-    
-    struct FileMakerResponse: Codable {
-        let token: String?
-    }
-    
-    struct FileMakerMessage: Codable {
-        let code: String
-        let message: String
-    }
-}
-
-struct FileMakerFindResponse: Codable {
-    let response: FindResponse?
-    let messages: [FileMakerMessage]
-    
-    struct FindResponse: Codable {
-        let dataInfo: DataInfo?
-        let data: [RecordData]?
-        
-        struct DataInfo: Codable {
-            let database: String
-            let layout: String
-            let table: String
-            let totalRecordCount: Int
-            let foundCount: Int
-            let returnedCount: Int
-        }
-        
-        struct RecordData: Codable {
-            let fieldData: FieldData
-            let recordId: String
-            let modId: String
-            
-            struct FieldData: Codable {
-                let EmailAddress: String?
-                let account_password: String?
-                let first_name: String?
-                let last_name: String?
-            }
-        }
-    }
-    
-    struct FileMakerMessage: Codable {
-        let code: String
-        let message: String
-    }
-}
-
-struct FileMakerCreateResponse: Codable {
-    let response: CreateResponse?
-    let messages: [FileMakerMessage]
-    
-    struct CreateResponse: Codable {
-        let recordId: String
-        let modId: String
-    }
-    
-    struct FileMakerMessage: Codable {
-        let code: String
-        let message: String
-    }
-}
-
 // MARK: - FileMaker Service
 class FileMakerService {
     static let shared = FileMakerService()
     
-    private var sessionToken: String?
-    private let apiVersion = "vLatest" // or specific version like "v1"
-    private let sessionQueue = DispatchQueue(label: "com.filemaker.session")
+    private let sessionManager = FileMakerSessionManager.shared
+    private let requestBuilder = FileMakerRequestBuilder()
     
     private init() {}
     
-    // MARK: - Authentication
+    // MARK: - Public API
+    
+    /// Authenticates and returns a session token
     func authenticate() async throws -> String {
+        sessionManager.clearToken()
+        return try await createNewSession()
+    }
+    
+    /// Creates a new FileMaker session
+    private func createNewSession() async throws -> String {
         let databaseName = FileMakerConfig.databaseName
         guard databaseName != "YOUR_DATABASE_NAME" else {
             throw FileMakerError.configurationError("Database name not configured. Please update FileMakerConfig.swift")
         }
         
-        // Clear any existing session token before creating a new one
-        await clearSession()
-        
-        let authURL = "\(FileMakerConfig.serverURL)/fmi/data/\(apiVersion)/databases/\(databaseName)/sessions"
+        let authURL = "\(FileMakerConfig.serverURL)/fmi/data/vLatest/databases/\(databaseName)/sessions"
         print("🔐 Authenticating with FileMaker Server...")
         print("   URL: \(authURL)")
         
@@ -105,8 +42,10 @@ class FileMakerService {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 30.0
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         
-        // FileMaker uses Basic Auth for application authentication
+        // Basic Auth for application authentication
         let loginString = "\(FileMakerConfig.appUsername):\(FileMakerConfig.appPassword)"
         guard let loginData = loginString.data(using: .utf8) else {
             throw FileMakerError.encodingError
@@ -126,21 +65,21 @@ class FileMakerService {
             if httpResponse.statusCode == 200 {
                 let authResponse = try JSONDecoder().decode(FileMakerAuthResponse.self, from: data)
                 if let token = authResponse.response?.token {
-                    self.sessionToken = token
+                    sessionManager.setToken(token)
                     print("✅ Authentication successful - Session token received")
                     return token
                 } else if let firstMessage = authResponse.messages.first {
                     print("❌ Auth error: [\(firstMessage.code)] \(firstMessage.message)")
+                    if firstMessage.code == "812" {
+                        throw FileMakerError.capacityExceeded
+                    }
                     throw FileMakerError.apiError(code: firstMessage.code, message: firstMessage.message)
                 }
             } else {
-                // Try to parse error message
                 if let errorData = try? JSONDecoder().decode(FileMakerAuthResponse.self, from: data),
                    let firstMessage = errorData.messages.first {
                     print("❌ Auth error: [\(firstMessage.code)] \(firstMessage.message)")
-                    // Handle capacity error during authentication
                     if firstMessage.code == "812" {
-                        await clearSession()
                         throw FileMakerError.capacityExceeded
                     }
                     throw FileMakerError.apiError(code: firstMessage.code, message: firstMessage.message)
@@ -152,280 +91,40 @@ class FileMakerService {
             throw FileMakerError.authenticationFailed
         } catch let error as FileMakerError {
             throw error
+        } catch let urlError as URLError {
+            // Provide more detailed error information
+            print("❌ URL Error during authentication:")
+            print("   Error Code: \(urlError.code.rawValue)")
+            print("   Error Description: \(urlError.localizedDescription)")
+            if let failureURL = urlError.failureURLString {
+                print("   Failure URL: \(failureURL)")
+            }
+            throw FileMakerError.networkError("\(urlError.localizedDescription) (Code: \(urlError.code.rawValue))")
         } catch {
+            // Re-throw network errors with more context
+            print("❌ Network error during authentication: \(error.localizedDescription)")
+            print("   Error Type: \(type(of: error))")
             throw FileMakerError.networkError(error.localizedDescription)
         }
     }
     
-    // MARK: - Find Records (Login)
+    /// Logs in a user with email and password
     func loginUser(email: String, password: String) async throws -> User {
-        let databaseName = FileMakerConfig.databaseName
-        guard databaseName != "YOUR_DATABASE_NAME" else {
-            throw FileMakerError.configurationError("Database name not configured. Please update FileMakerConfig.swift")
-        }
-        
-        // Create a session for this login attempt
-        // We'll close it immediately after to free up server connections
-        var sessionCreated = false
-        if sessionToken == nil {
-            _ = try await authenticate()
-            sessionCreated = true
-        }
-        
-        guard let url = URL(string: "\(FileMakerConfig.serverURL)/fmi/data/\(apiVersion)/databases/\(databaseName)/layouts/\(FileMakerConfig.layoutName)/_find") else {
-            throw FileMakerError.invalidURL
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        if let token = sessionToken {
-            // FileMaker Data API requires "Bearer" prefix for session token authentication
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-        
-        // Create find request - search for matching email and password
-        let findQuery: [String: Any] = [
-            "query": [
-                [
-                    FileMakerConfig.emailFieldName: "==\(email)",
-                    FileMakerConfig.passwordFieldName: "==\(password)"
-                ]
-            ],
-            "limit": 1
-        ]
-        
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: findQuery)
-        } catch {
-            throw FileMakerError.encodingError
-        }
-        
-        do {
-            print("🔍 Searching for user in FileMaker database...")
-            print("   Find URL: \(url.absoluteString)")
-            print("   Using session token: \(sessionToken != nil ? "Yes (length: \(sessionToken?.count ?? 0))" : "No")")
-            let (data, response) = try await URLSession.shared.data(for: request)
-            
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw FileMakerError.invalidResponse
-            }
-            
-            print("   Find Response Status: \(httpResponse.statusCode)")
-            
-            // Log response data for debugging (first 500 chars)
-            if let responseString = String(data: data, encoding: .utf8), !responseString.isEmpty {
-                let preview = responseString.count > 500 ? String(responseString.prefix(500)) + "..." : responseString
-                print("   Response Body: \(preview)")
-            }
-            
-            if httpResponse.statusCode == 200 {
-                let findResponse = try JSONDecoder().decode(FileMakerFindResponse.self, from: data)
-                
-                if let dataInfo = findResponse.response?.dataInfo,
-                   dataInfo.foundCount > 0,
-                   let userData = findResponse.response?.data?.first {
-                    // User found with matching credentials
-                    let firstName = userData.fieldData.first_name ?? ""
-                    let lastName = userData.fieldData.last_name ?? ""
-                    
-                    // Close session immediately to free up server connections
-                    if sessionCreated {
-                        await clearSession()
-                    }
-                    
-                    // Return User object
-                    return User(firstName: firstName, lastName: lastName, email: email)
-                } else {
-                    // No matching record found - close session
-                    print("❌ User not found - No matching record in database")
-                    if sessionCreated {
-                        await clearSession()
-                    }
-                    throw FileMakerError.userNotFound
-                }
-            } else {
-                print("❌ Find request failed with status: \(httpResponse.statusCode)")
-                
-                // Always close session on error
-                if sessionCreated {
-                    await clearSession()
-                }
-                
-                // Try to parse error message first
-                if let errorData = try? JSONDecoder().decode(FileMakerFindResponse.self, from: data),
-                   let firstMessage = errorData.messages.first {
-                    print("   FileMaker Error: [\(firstMessage.code)] \(firstMessage.message)")
-                    // Handle specific error codes
-                    if firstMessage.code == "812" {
-                        // Exceeded host capacity - this often indicates privilege set connection limits
-                        throw FileMakerError.capacityExceeded
-                    } else if firstMessage.code == "401" || httpResponse.statusCode == 401 {
-                        // Session expired - re-authenticate and retry (but don't create another session if we just created one)
-                        // Just throw the error since we already closed the session
-                        throw FileMakerError.authenticationFailed
-                    }
-                    throw FileMakerError.apiError(code: firstMessage.code, message: firstMessage.message)
-                }
-                
-                // Handle HTTP status codes
-                if httpResponse.statusCode == 401 {
-                    print("   HTTP 401 - Authentication failed")
-                    throw FileMakerError.authenticationFailed
-                }
-                
-                print("   HTTP Error: \(httpResponse.statusCode)")
-                throw FileMakerError.httpError(statusCode: httpResponse.statusCode)
-            }
-        } catch let error as FileMakerError {
-            // Ensure session is closed on any error
-            if sessionCreated {
-                await clearSession()
-            }
-            throw error
-        } catch {
-            // Ensure session is closed on any error
-            if sessionCreated {
-                await clearSession()
-            }
-            throw FileMakerError.networkError(error.localizedDescription)
+        return try await withSession { token in
+            try await self.performLogin(email: email, password: password, token: token)
         }
     }
     
-    // MARK: - Session Management
-    private func clearSession() async {
-        await sessionQueue.sync {
-            if let token = sessionToken {
-                sessionToken = nil
-                // Optionally close the session on server (fire and forget)
-                Task {
-                    await logoutSession(token: token)
-                }
-            }
-        }
-    }
-    
-    private func logoutSession(token: String) async {
-        let databaseName = FileMakerConfig.databaseName
-        guard let url = URL(string: "\(FileMakerConfig.serverURL)/fmi/data/\(apiVersion)/databases/\(databaseName)/sessions/\(token)") else {
-            return
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 5.0 // Short timeout for cleanup
-        
-        do {
-            _ = try await URLSession.shared.data(for: request)
-        } catch {
-            // Ignore logout errors - session will timeout on server anyway
-        }
-    }
-    
-    // MARK: - Check if Email Exists
+    /// Checks if an email already exists in the database
     func emailExists(_ email: String) async throws -> Bool {
-        let databaseName = FileMakerConfig.databaseName
-        guard databaseName != "YOUR_DATABASE_NAME" else {
-            throw FileMakerError.configurationError("Database name not configured. Please update FileMakerConfig.swift")
-        }
-        
-        // Create a session for this check
-        var sessionCreated = false
-        if sessionToken == nil {
-            _ = try await authenticate()
-            sessionCreated = true
-        }
-        
-        guard let url = URL(string: "\(FileMakerConfig.serverURL)/fmi/data/\(apiVersion)/databases/\(databaseName)/layouts/\(FileMakerConfig.layoutName)/_find") else {
-            throw FileMakerError.invalidURL
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        if let token = sessionToken {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-        
-        // Search for email
-        let findQuery: [String: Any] = [
-            "query": [
-                [
-                    FileMakerConfig.emailFieldName: "==\(email)"
-                ]
-            ],
-            "limit": 1
-        ]
-        
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: findQuery)
-        } catch {
-            throw FileMakerError.encodingError
-        }
-        
-        do {
-            print("🔍 Checking if email exists: \(email)")
-            let (data, response) = try await URLSession.shared.data(for: request)
-            
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw FileMakerError.invalidResponse
-            }
-            
-            print("   Check Response Status: \(httpResponse.statusCode)")
-            
-            if sessionCreated {
-                await clearSession()
-            }
-            
-            if httpResponse.statusCode == 200 {
-                let findResponse = try JSONDecoder().decode(FileMakerFindResponse.self, from: data)
-                
-                if let dataInfo = findResponse.response?.dataInfo,
-                   dataInfo.foundCount > 0 {
-                    print("   ⚠️ Email already exists")
-                    return true
-                } else {
-                    print("   ✅ Email is available")
-                    return false
-                }
-            } else {
-                // If we get 401 (not found error), email doesn't exist
-                if let errorData = try? JSONDecoder().decode(FileMakerFindResponse.self, from: data),
-                   let firstMessage = errorData.messages.first {
-                    // Error 401 means "No records match the request"
-                    if firstMessage.code == "401" {
-                        print("   ✅ Email is available (no matching records)")
-                        return false
-                    }
-                }
-                
-                // For other errors, throw them
-                throw FileMakerError.httpError(statusCode: httpResponse.statusCode)
-            }
-        } catch let error as FileMakerError {
-            if sessionCreated {
-                await clearSession()
-            }
-            throw error
-        } catch {
-            if sessionCreated {
-                await clearSession()
-            }
-            throw FileMakerError.networkError(error.localizedDescription)
+        return try await withSession { token in
+            try await self.checkEmailExists(email: email, token: token)
         }
     }
     
-    // MARK: - Create Record (Sign Up)
+    /// Creates a new user account
     func createUser(firstName: String, lastName: String, email: String, password: String) async throws -> Bool {
-        let databaseName = FileMakerConfig.databaseName
-        guard databaseName != "YOUR_DATABASE_NAME" else {
-            throw FileMakerError.configurationError("Database name not configured. Please update FileMakerConfig.swift")
-        }
-        
-        // First, check if email already exists
+        // Check if email already exists
         print("🔍 Checking if email already exists...")
         let exists = try await emailExists(email)
         if exists {
@@ -433,27 +132,160 @@ class FileMakerService {
             throw FileMakerError.emailAlreadyExists
         }
         
-        // Ensure we have a session token
-        var sessionCreated = false
-        if sessionToken == nil {
-            _ = try await authenticate()
-            sessionCreated = true
+        return try await withSession { token in
+            try await self.performCreateUser(firstName: firstName, lastName: lastName, email: email, password: password, token: token)
+        }
+    }
+    
+    /// Logs out and clears the session
+    func logout() async {
+        if let token = sessionManager.token {
+            await closeSessionOnServer(token: token)
+        }
+    }
+    
+    // MARK: - Private Implementation
+    
+    /// Executes a block with a valid session, ensuring cleanup
+    private func withSession<T>(_ operation: @escaping (String) async throws -> T) async throws -> T {
+        // Check if we already have a session
+        let hadToken = sessionManager.hasToken()
+        let token: String
+        
+        if hadToken, let existingToken = sessionManager.token {
+            token = existingToken
+        } else {
+            // Create new session
+            token = try await createNewSession()
         }
         
-        guard let url = URL(string: "\(FileMakerConfig.serverURL)/fmi/data/\(apiVersion)/databases/\(databaseName)/layouts/\(FileMakerConfig.layoutName)/records") else {
-            throw FileMakerError.invalidURL
+        let sessionWasCreated = !hadToken
+        
+        do {
+            let result = try await operation(token)
+            // Only close session if we created it for this operation
+            if sessionWasCreated {
+                await closeSessionOnServer(token: token)
+            }
+            return result
+        } catch {
+            // Always close session on error if we created it
+            if sessionWasCreated {
+                await closeSessionOnServer(token: token)
+            }
+            throw error
+        }
+    }
+    
+    /// Closes the session on the server
+    private func closeSessionOnServer(token: String) async {
+        let databaseName = FileMakerConfig.databaseName
+        guard let url = URL(string: "\(FileMakerConfig.serverURL)/fmi/data/vLatest/databases/\(databaseName)/sessions/\(token)") else {
+            sessionManager.clearToken()
+            return
         }
         
         var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 5.0
         
-        if let token = sessionToken {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        do {
+            _ = try await URLSession.shared.data(for: request)
+        } catch {
+            // Ignore logout errors - session will timeout on server anyway
         }
         
-        // Create record request
-        // Note: You may need to adjust field names (FirstName, LastName) to match your FileMaker database
+        sessionManager.clearToken()
+    }
+    
+    /// Performs the actual login operation
+    private func performLogin(email: String, password: String, token: String) async throws -> User {
+        let endpoint = "layouts/\(FileMakerConfig.layoutName)/_find"
+        let url = try requestBuilder.buildURL(endpoint: endpoint)
+        
+        let fields = [
+            FileMakerConfig.emailFieldName: "==\(email)",
+            FileMakerConfig.passwordFieldName: "==\(password)"
+        ]
+        let body = try requestBuilder.createFindQuery(fields: fields)
+        let request = requestBuilder.createRequest(url: url, method: "POST", body: body, sessionToken: token)
+        
+        print("🔍 Searching for user in FileMaker database...")
+        let (data, response) = try await performRequest(request: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw FileMakerError.invalidResponse
+        }
+        
+        print("   Find Response Status: \(httpResponse.statusCode)")
+        logResponse(data: data)
+        
+        if httpResponse.statusCode == 200 {
+            let findResponse = try JSONDecoder().decode(FileMakerFindResponse.self, from: data)
+            
+            guard let dataInfo = findResponse.response?.dataInfo,
+                  dataInfo.foundCount > 0,
+                  let userData = findResponse.response?.data?.first else {
+                print("❌ User not found - No matching record in database")
+                throw FileMakerError.userNotFound
+            }
+            
+            let firstName = userData.fieldData.first_name ?? ""
+            let lastName = userData.fieldData.last_name ?? ""
+            return User(firstName: firstName, lastName: lastName, email: email)
+        } else {
+            try handleErrorResponse(data: data, statusCode: httpResponse.statusCode)
+            throw FileMakerError.userNotFound
+        }
+    }
+    
+    /// Checks if an email exists
+    private func checkEmailExists(email: String, token: String) async throws -> Bool {
+        let endpoint = "layouts/\(FileMakerConfig.layoutName)/_find"
+        let url = try requestBuilder.buildURL(endpoint: endpoint)
+        
+        let fields = [FileMakerConfig.emailFieldName: "==\(email)"]
+        let body = try requestBuilder.createFindQuery(fields: fields)
+        let request = requestBuilder.createRequest(url: url, method: "POST", body: body, sessionToken: token)
+        
+        print("🔍 Checking if email exists: \(email)")
+        let (data, response) = try await performRequest(request: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw FileMakerError.invalidResponse
+        }
+        
+        print("   Check Response Status: \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 200 {
+            let findResponse = try JSONDecoder().decode(FileMakerFindResponse.self, from: data)
+            
+            if let dataInfo = findResponse.response?.dataInfo,
+               dataInfo.foundCount > 0 {
+                print("   ⚠️ Email already exists")
+                return true
+            } else {
+                print("   ✅ Email is available")
+                return false
+            }
+        } else {
+            // Error 401 means "No records match the request"
+            if let errorData = try? JSONDecoder().decode(FileMakerFindResponse.self, from: data),
+               let firstMessage = errorData.messages.first,
+               firstMessage.code == "401" {
+                print("   ✅ Email is available (no matching records)")
+                return false
+            }
+            throw FileMakerError.httpError(statusCode: httpResponse.statusCode)
+        }
+    }
+    
+    /// Creates a new user record
+    private func performCreateUser(firstName: String, lastName: String, email: String, password: String, token: String) async throws -> Bool {
+        let endpoint = "layouts/\(FileMakerConfig.layoutName)/records"
+        let url = try requestBuilder.buildURL(endpoint: endpoint)
+        
         let fieldData: [String: Any] = [
             FileMakerConfig.emailFieldName: email,
             FileMakerConfig.passwordFieldName: password,
@@ -461,150 +293,99 @@ class FileMakerService {
             "last_name": lastName
         ]
         
-        let createRequest: [String: Any] = [
-            "fieldData": fieldData
-        ]
+        let body = try requestBuilder.createRecordBody(fieldData: fieldData)
+        let request = requestBuilder.createRequest(url: url, method: "POST", body: body, sessionToken: token)
         
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: createRequest)
-        } catch {
-            throw FileMakerError.encodingError
+        print("📝 Creating user record in FileMaker...")
+        let (data, response) = try await performRequest(request: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw FileMakerError.invalidResponse
         }
         
-        do {
-            print("📝 Creating user record in FileMaker...")
-            let (data, response) = try await URLSession.shared.data(for: request)
+        print("   Create Response Status: \(httpResponse.statusCode)")
+        logResponse(data: data)
+        
+        if httpResponse.statusCode == 200 || httpResponse.statusCode == 201 {
+            let createResponse = try JSONDecoder().decode(FileMakerCreateResponse.self, from: data)
             
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw FileMakerError.invalidResponse
-            }
-            
-            print("   Create Response Status: \(httpResponse.statusCode)")
-            
-            if let responseString = String(data: data, encoding: .utf8), !responseString.isEmpty {
-                let preview = responseString.count > 500 ? String(responseString.prefix(500)) + "..." : responseString
-                print("   Response Body: \(preview)")
-            }
-            
-            if httpResponse.statusCode == 200 || httpResponse.statusCode == 201 {
-                let createResponse = try JSONDecoder().decode(FileMakerCreateResponse.self, from: data)
+            if let firstMessage = createResponse.messages.first {
+                print("   📊 First message code: [\(firstMessage.code)]")
+                print("   📊 First message text: \(firstMessage.message)")
                 
-                print("   📊 Response decoded successfully")
-                print("   📊 Messages count: \(createResponse.messages.count)")
-                print("   📊 Record ID: \(createResponse.response?.recordId ?? "nil")")
-                
-                // HTTP 201 means the record was created successfully
-                // Check for error codes in messages (anything other than "0" is an error)
-                if let firstMessage = createResponse.messages.first {
-                    print("   📊 First message code: [\(firstMessage.code)]")
-                    print("   📊 First message text: \(firstMessage.message)")
-                    
-                    // Code "0" means success in FileMaker
-                    if firstMessage.code == "0" {
-                        // SUCCESS!
-                        print("✅ User record created successfully (Code: 0)")
-                        if sessionCreated {
-                            await clearSession()
-                        }
-                        return true
-                    } else {
-                        // ERROR - non-zero code
-                        print("❌ Create error: [\(firstMessage.code)] \(firstMessage.message)")
-                        if sessionCreated {
-                            await clearSession()
-                        }
-                        throw FileMakerError.apiError(code: firstMessage.code, message: firstMessage.message)
-                    }
-                } else {
-                    // No messages but 201 status = success
-                    print("✅ User record created successfully (No messages, HTTP 201)")
-                    if sessionCreated {
-                        await clearSession()
-                    }
+                if firstMessage.code == "0" {
+                    print("✅ User record created successfully (Code: 0)")
                     return true
-                }
-            } else {
-                print("❌ Create request failed with status: \(httpResponse.statusCode)")
-                
-                // Try to parse error message
-                if let errorData = try? JSONDecoder().decode(FileMakerCreateResponse.self, from: data),
-                   let firstMessage = errorData.messages.first {
-                    print("   FileMaker Error: [\(firstMessage.code)] \(firstMessage.message)")
-                    if sessionCreated {
-                        await clearSession()
-                    }
+                } else {
+                    print("❌ Create error: [\(firstMessage.code)] \(firstMessage.message)")
                     throw FileMakerError.apiError(code: firstMessage.code, message: firstMessage.message)
                 }
-                
-                if sessionCreated {
-                    await clearSession()
-                }
-                throw FileMakerError.httpError(statusCode: httpResponse.statusCode)
+            } else {
+                print("✅ User record created successfully (No messages, HTTP 201)")
+                return true
             }
-        } catch let error as FileMakerError {
-            if sessionCreated {
-                await clearSession()
-            }
-            throw error
+        } else {
+            try handleErrorResponse(data: data, statusCode: httpResponse.statusCode)
+            throw FileMakerError.httpError(statusCode: httpResponse.statusCode)
+        }
+    }
+    
+    // MARK: - Helper Methods
+    
+    /// Performs a network request
+    private func performRequest(request: URLRequest) async throws -> (Data, URLResponse) {
+        do {
+            return try await URLSession.shared.data(for: request)
+        } catch let urlError as URLError {
+            print("❌ URL Error in performRequest:")
+            print("   Code: \(urlError.code.rawValue) - \(urlError.code)")
+            print("   Description: \(urlError.localizedDescription)")
+            print("   URL: \(request.url?.absoluteString ?? "unknown")")
+            throw FileMakerError.networkError("\(urlError.localizedDescription) (Code: \(urlError.code.rawValue))")
         } catch {
-            if sessionCreated {
-                await clearSession()
-            }
+            print("❌ Network error in performRequest: \(error.localizedDescription)")
             throw FileMakerError.networkError(error.localizedDescription)
         }
     }
     
-    // MARK: - Logout
-    func logout() async {
-        await clearSession()
-    }
-}
-
-// MARK: - FileMaker Errors
-enum FileMakerError: LocalizedError {
-    case invalidURL
-    case invalidResponse
-    case authenticationFailed
-    case invalidCredentials
-    case userNotFound
-    case emailAlreadyExists
-    case networkError(String)
-    case httpError(statusCode: Int)
-    case apiError(code: String, message: String)
-    case encodingError
-    case configurationError(String)
-    case capacityExceeded
-    
-    var errorDescription: String? {
-        switch self {
-        case .invalidURL:
-            return "Invalid server URL"
-        case .invalidResponse:
-            return "Invalid response from server"
-        case .authenticationFailed:
-            return "Failed to authenticate with server"
-        case .invalidCredentials:
-            return "Invalid email or password"
-        case .userNotFound:
-            return "User does not exist. Please check your email address and try again."
-        case .emailAlreadyExists:
-            return "This email is already registered. Please use a different email or try signing in."
-        case .networkError(let message):
-            return "Network error: \(message)"
-        case .httpError(let statusCode):
-            return "Server error (Code: \(statusCode))"
-        case .apiError(let code, let message):
-            // Don't show technical error for success code
-            if code == "0" {
-                return "Account successfully created"
+    /// Handles error responses from FileMaker API
+    private func handleErrorResponse(data: Data, statusCode: Int) throws {
+        print("❌ Request failed with status: \(statusCode)")
+        
+        // Try to parse FileMaker error message (try both response types)
+        if let errorData = try? JSONDecoder().decode(FileMakerFindResponse.self, from: data),
+           let firstMessage = errorData.messages.first {
+            print("   FileMaker Error: [\(firstMessage.code)] \(firstMessage.message)")
+            
+            if firstMessage.code == "812" {
+                throw FileMakerError.capacityExceeded
+            } else if firstMessage.code == "401" || statusCode == 401 {
+                throw FileMakerError.authenticationFailed
             }
-            return "FileMaker Error [\(code)]: \(message)"
-        case .encodingError:
-            return "Failed to encode request data"
-        case .configurationError(let message):
-            return message
-        case .capacityExceeded:
-            return "Server is at maximum capacity. Please try again in a moment."
+            throw FileMakerError.apiError(code: firstMessage.code, message: firstMessage.message)
+        } else if let errorData = try? JSONDecoder().decode(FileMakerCreateResponse.self, from: data),
+                  let firstMessage = errorData.messages.first {
+            print("   FileMaker Error: [\(firstMessage.code)] \(firstMessage.message)")
+            
+            if firstMessage.code == "812" {
+                throw FileMakerError.capacityExceeded
+            } else if firstMessage.code == "401" || statusCode == 401 {
+                throw FileMakerError.authenticationFailed
+            }
+            throw FileMakerError.apiError(code: firstMessage.code, message: firstMessage.message)
+        }
+        
+        if statusCode == 401 {
+            print("   HTTP 401 - Authentication failed")
+            throw FileMakerError.authenticationFailed
+        }
+    }
+    
+    /// Logs response data for debugging
+    private func logResponse(data: Data) {
+        if let responseString = String(data: data, encoding: .utf8), !responseString.isEmpty {
+            let preview = responseString.count > 500 ? String(responseString.prefix(500)) + "..." : responseString
+            print("   Response Body: \(preview)")
         }
     }
 }
