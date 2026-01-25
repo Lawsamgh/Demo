@@ -61,7 +61,7 @@ struct SettingView: View {
       
     // MARK: - User Header
     private var userHeaderSection: some View {
-        VStack(spacing: 0) {
+        HStack(spacing: 16) {
             // Avatar with enhanced gradient
             ZStack {
                 Circle()
@@ -76,33 +76,35 @@ struct SettingView: View {
                             endPoint: .bottomTrailing
                         )
                     )
-                    .frame(width: 100, height: 100)
-                    .shadow(color: Color.purple.opacity(0.3), radius: 20, x: 0, y: 8)
+                    .frame(width: 70, height: 70)
+                    .shadow(color: Color.purple.opacity(0.25), radius: 12, x: 0, y: 4)
                 
                 if let user = userSession.currentUser {
                     Text(getInitials(from: user))
-                        .font(.system(size: 36, weight: .semibold))
+                        .font(.system(size: 28, weight: .semibold))
                         .foregroundStyle(.white)
                 }
             }
-            .padding(.top, 28)
-            .padding(.bottom, 20)
             
             // User Info
-            VStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 4) {
                 if let user = userSession.currentUser {
                     Text(user.fullName)
                         .font(.system(size: 24, weight: .bold))
                         .foregroundStyle(.primary)
+                        .lineLimit(1)
                     
                     Text(user.email)
                         .font(.system(size: 16))
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             }
-            .padding(.bottom, 28)
+            
+            Spacer()
         }
-        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 20)
         .background(
             RoundedRectangle(cornerRadius: 20)
                 .fill(Color(.secondarySystemGroupedBackground))

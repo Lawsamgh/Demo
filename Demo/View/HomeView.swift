@@ -118,7 +118,7 @@ struct HomeView: View {
                         .foregroundStyle(.secondary)
                     
                     Text("\(user.firstName)!")
-                        .font(.system(size: 32, weight: .bold))
+                        .font(.system(size: 28, weight: .regular))
                         .foregroundStyle(.primary)
                 } else {
                     Text("Welcome Back!")
@@ -170,7 +170,7 @@ struct HomeView: View {
                         .foregroundStyle(.white.opacity(0.8))
                     
                     Text(formatCurrency(balance))
-                        .font(.system(size: 42, weight: .bold, design: .rounded))
+                        .font(.system(size: 42, weight: .regular, design: .rounded))
                         .foregroundStyle(.white)
                         .contentTransition(.numericText())
                         .fixedSize(horizontal: false, vertical: true)
@@ -204,34 +204,8 @@ struct HomeView: View {
                     )
                 }
             }
-            .padding(.bottom, 24)
+            .padding(.bottom, 14)
             
-            // Divider
-            Divider()
-                .background(.white.opacity(0.2))
-                .padding(.bottom, 20)
-            
-            // Quick Stats Row
-            HStack(spacing: 0) {
-                QuickStatView(
-                    title: "Income",
-                    amount: totalIncome,
-                    color: .green,
-                    icon: "arrow.down.circle.fill"
-                )
-                
-                Divider()
-                    .frame(height: 50)
-                    .background(.white.opacity(0.2))
-                    .padding(.horizontal, 20)
-                
-                QuickStatView(
-                    title: "Expenses",
-                    amount: totalExpenses,
-                    color: .red,
-                    icon: "arrow.up.circle.fill"
-                )
-            }
         }
         .padding(24)
         .background(
