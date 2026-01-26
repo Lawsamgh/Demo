@@ -2,7 +2,7 @@
 //  HomeView.swift
 //  Demo
 //
-//  Created by PGH_PICT_LAMPENE on 10/01/2026.
+//  Redesigned with Premium iOS Design
 //
 
 import SwiftUI
@@ -13,6 +13,7 @@ struct HomeView: View {
     @State private var expenses: [Expense] = sampleExpenses
     @State private var selectedPeriod: TimePeriod = .month
     @State private var showAddExpense = false
+    @State private var scrollOffset: CGFloat = 0
     
     enum TimePeriod: String, CaseIterable {
         case week = "Week"
@@ -20,15 +21,13 @@ struct HomeView: View {
         case year = "Year"
     }
     
-    // Computed properties for financial summary
+    // Computed properties
     private var totalIncome: Double {
-        expenses.filter { $0.type == .income }
-            .reduce(0) { $0 + $1.amount }
+        expenses.filter { $0.type == .income }.reduce(0) { $0 + $1.amount }
     }
     
     private var totalExpenses: Double {
-        expenses.filter { $0.type == .expense }
-            .reduce(0) { $0 + $1.amount }
+        expenses.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount }
     }
     
     private var balance: Double {
@@ -36,7 +35,7 @@ struct HomeView: View {
     }
     
     private var recentTransactions: [Expense] {
-        expenses.sorted { $0.date > $1.date }.prefix(5).map { $0 }
+        expenses.sorted { $0.date > $1.date }.prefix(6).map { $0 }
     }
     
     private var categoryBreakdown: [(category: ExpenseCategory, amount: Double)] {
@@ -48,268 +47,345 @@ struct HomeView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                // Background
-                Color(.systemGroupedBackground)
-                    .ignoresSafeArea()
+                // Dynamic Background
+                LinearGradient(
+                    colors: colorScheme == .dark ? 
+                        [Color.black, Color.black] :
+                        [Color(.systemGroupedBackground), Color(.systemGroupedBackground)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
                 
-                ScrollView {
-                    VStack(spacing: 0) {
-                        // Welcome Header
-                        welcomeHeader
-                            .padding(.horizontal, 20)
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 24) {
+                        // Animated Header
+                        headerSection
                             .padding(.top, 8)
-                            .padding(.bottom, 20)
                         
-                        // Balance Card
-                        balanceCard
+                        // Hero Balance Card
+                        heroBalanceCard
                             .padding(.horizontal, 20)
-                            .padding(.bottom, 24)
                         
-                        // Income/Expense Stats
-                        incomeExpenseStats
+                        // Spending Chart Preview
+                        spendingPreview
                             .padding(.horizontal, 20)
-                            .padding(.bottom, 24)
                         
-                        // Category Breakdown
-                        categoryBreakdownSection
+                        // Stats Overview
+                        statsOverview
                             .padding(.horizontal, 20)
-                            .padding(.bottom, 24)
                         
-                        // Recent Transactions
-                        recentTransactionsSection
+                        // Transactions List
+                        transactionsSection
                             .padding(.horizontal, 20)
-                            .padding(.bottom, 24)
+                        
+                        // Bottom Spacing
+                        Color.clear.frame(height: 20)
                     }
                 }
             }
-            .navigationBarTitleDisplayMode(.large)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: {
-                        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
-                        impactFeedback.impactOccurred()
-                        showAddExpense = true
-                    }) {
-                        ZStack {
-                            Circle()
-                                .fill(Color.blue.opacity(0.1))
-                                .frame(width: 36, height: 36)
-                            
-                            Image(systemName: "plus")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(.blue)
+                    HStack(spacing: 8) {
+                        Button {
+                            // Notifications
+                        } label: {
+                            Image(systemName: "bell")
+                                .font(.system(size: 20, weight: .medium))
+                                .foregroundStyle(.primary)
+                        }
+                        
+                        Button {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                showAddExpense = true
+                            }
+                        } label: {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 28))
+                                .foregroundStyle(
+                                    LinearGradient(
+                                        colors: [.blue, .purple],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .shadow(color: .blue.opacity(0.3), radius: 4, x: 0, y: 2)
                         }
                     }
                 }
             }
             .sheet(isPresented: $showAddExpense) {
                 AddExpenseView(expenses: $expenses)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
             }
         }
     }
     
-    // MARK: - Welcome Header
-    private var welcomeHeader: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 6) {
-                if let user = userSession.currentUser {
-                    Text("Welcome Back,")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(.secondary)
-                    
-                    Text("\(user.firstName)!")
-                        .font(.system(size: 28, weight: .regular))
-                        .foregroundStyle(.primary)
-                } else {
-                    Text("Welcome Back!")
-                        .font(.system(size: 32, weight: .bold))
-                        .foregroundStyle(.primary)
-                }
-                
-                Text("Here's your financial overview")
-                    .font(.system(size: 15))
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 2)
-            }
-            
-            Spacer()
-            
-            // User Avatar
-            if let user = userSession.currentUser {
-                ZStack {
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color.blue.opacity(0.8),
-                                    Color.purple.opacity(0.6)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 56, height: 56)
-                        .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 4)
-                    
-                    Text(getInitials(from: user))
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(.white)
-                }
-            }
-        }
-    }
-    
-    // MARK: - Balance Card
-    private var balanceCard: some View {
-        VStack(spacing: 0) {
-            // Header with Period Selector
-            HStack(alignment: .top) {
+    // MARK: - Header Section
+    private var headerSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Greeting and Date
+            HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Total Balance")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.8))
-                    
-                    Text(formatCurrency(balance))
-                        .font(.system(size: 42, weight: .regular, design: .rounded))
-                        .foregroundStyle(.white)
-                        .contentTransition(.numericText())
-                        .fixedSize(horizontal: false, vertical: true)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
+                    if let user = userSession.currentUser {
+                        Text("Good morning,")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        
+                        Text("\(user.firstName)! 👋")
+                            .font(.system(size: 28, weight: .bold))
+                            .foregroundStyle(.primary)
+                    } else {
+                        Text("Welcome Back! 👋")
+                            .font(.system(size: 28, weight: .bold))
+                            .foregroundStyle(.primary)
+                    }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
                 
-                // Period Selector
-                Menu {
+                Spacer()
+                
+                // Current Month and Year
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(currentMonth)
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(.primary)
+                    Text(currentYear)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 20)
+            
+            // Period Toggle
+            HStack {
+                Spacer()
+                
+                HStack(spacing: 0) {
                     ForEach(TimePeriod.allCases, id: \.self) { period in
-                        Button(period.rawValue) {
-                            withAnimation(.spring(response: 0.3)) {
+                        Button {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                                 selectedPeriod = period
                             }
+                        } label: {
+                            Text(period.rawValue)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(selectedPeriod == period ? .white : .secondary)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 8)
+                                .background(
+                                    ZStack {
+                                        if selectedPeriod == period {
+                                            Capsule()
+                                                .fill(
+                                                    LinearGradient(
+                                                        colors: [.blue, .purple],
+                                                        startPoint: .leading,
+                                                        endPoint: .trailing
+                                                    )
+                                                )
+                                                .matchedGeometryEffect(id: "period", in: namespace)
+                                        }
+                                    }
+                                )
                         }
                     }
-                } label: {
-                    HStack(spacing: 6) {
-                        Text(selectedPeriod.rawValue)
-                            .font(.system(size: 14, weight: .semibold))
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 10, weight: .semibold))
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(
-                        Capsule()
-                            .fill(.white.opacity(0.2))
-                    )
                 }
-            }
-            .padding(.bottom, 14)
-            
-        }
-        .padding(24)
-        .background(
-            RoundedRectangle(cornerRadius: 28)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color.blue,
-                            Color.purple
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
+                .background(
+                    Capsule()
+                        .fill(Color(.tertiarySystemGroupedBackground))
                 )
-                .shadow(color: .black.opacity(0.15), radius: 20, x: 0, y: 10)
-        )
-    }
-    
-    // MARK: - Income/Expense Stats
-    private var incomeExpenseStats: some View {
-        HStack(spacing: 12) {
-            StatCard(
-                title: "Income",
-                amount: totalIncome,
-                icon: "arrow.down.circle.fill",
-                color: .green,
-                gradient: [Color.green.opacity(0.15), Color.green.opacity(0.05)]
-            )
+                .frame(width: 200)
+            }
+            .padding(.horizontal, 20)
             
-            StatCard(
-                title: "Expenses",
-                amount: totalExpenses,
-                icon: "arrow.up.circle.fill",
-                color: .red,
-                gradient: [Color.red.opacity(0.15), Color.red.opacity(0.05)]
-            )
+            // Balance Section
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Total Balance")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.secondary)
+                
+                Text(formatCurrency(balance))
+                    .font(.system(size: 40, weight: .regular, design: .rounded))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+            }
+            .padding(.horizontal, 20)
         }
     }
     
-    // MARK: - Category Breakdown
-    private var categoryBreakdownSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("Top Categories")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(.primary)
-                
-                Spacer()
-                
-                Button {
-                    // Handle view all
-                } label: {
-                    Text("View All")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.blue)
+    // Current month and year computed properties
+    private var currentMonth: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM"
+        return formatter.string(from: Date())
+    }
+    
+    private var currentYear: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy"
+        return formatter.string(from: Date())
+    }
+    
+    @Namespace private var namespace
+    
+    // MARK: - Hero Balance Card
+    private var heroBalanceCard: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 20) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .font(.system(size: 16))
+                            .foregroundStyle(.green)
+                        Text("Income")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(formatCurrency(totalIncome))
+                        .font(.system(size: 16, weight: .regular, design: .rounded))
+                        .foregroundStyle(.primary)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(20)
+                .background(
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(Color(.secondarySystemGroupedBackground))
+                )
+                
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 16))
+                            .foregroundStyle(.red)
+                        Text("Expenses")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(formatCurrency(totalExpenses))
+                        .font(.system(size: 16, weight: .regular, design: .rounded))
+                        .foregroundStyle(.primary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(20)
+                .background(
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(Color(.secondarySystemGroupedBackground))
+                )
             }
+        }
+    }
+    
+    // MARK: - Stats Overview
+    private var statsOverview: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Categories")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(.primary)
             
-            VStack(spacing: 10) {
-                ForEach(Array(categoryBreakdown.prefix(5).enumerated()), id: \.element.category) { index, item in
-                    CategoryRow(
+            VStack(spacing: 12) {
+                ForEach(Array(categoryBreakdown.prefix(3).enumerated()), id: \.element.category) { index, item in
+                    CategoryCard(
                         category: item.category,
                         amount: item.amount,
-                        percentage: item.amount / totalExpenses,
-                        rank: index + 1
+                        percentage: item.amount / totalExpenses
                     )
+                }
+            }
+            
+            if categoryBreakdown.count > 3 {
+                Button {
+                    // View all categories
+                } label: {
+                    HStack {
+                        Text("View all categories")
+                            .font(.system(size: 15, weight: .semibold))
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    .foregroundStyle(.blue)
+                    .padding(.vertical, 12)
                 }
             }
         }
     }
     
-    // MARK: - Recent Transactions
-    private var recentTransactionsSection: some View {
+    // MARK: - Spending Preview
+    private var spendingPreview: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("Recent Transactions")
-                    .font(.system(size: 18, weight: .bold))
+                Text("Spending Trend")
+                    .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(.primary)
                 
                 Spacer()
                 
-                Button {
-                    // Handle see all
-                } label: {
-                    Text("See All")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.blue)
-                }
+                Text("Last 7 days")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
             }
             
-            VStack(spacing: 0) {
-                ForEach(Array(recentTransactions.enumerated()), id: \.element.id) { index, expense in
-                    TransactionRow(expense: expense)
-                    
-                    if index < recentTransactions.count - 1 {
-                        Divider()
-                            .padding(.leading, 60)
+            // Simple Bar Chart
+            HStack(alignment: .bottom, spacing: 8) {
+                ForEach(0..<7, id: \.self) { index in
+                    VStack(spacing: 6) {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(
+                                LinearGradient(
+                                    colors: index == 6 ? [.blue, .purple] : [Color(.systemGray4), Color(.systemGray5)],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+                            .frame(height: CGFloat.random(in: 40...120))
+                        
+                        Text(["M", "T", "W", "T", "F", "S", "S"][index])
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
                     }
+                    .frame(maxWidth: .infinity)
                 }
             }
+            .frame(height: 140)
+            .padding(20)
             .background(
                 RoundedRectangle(cornerRadius: 20)
                     .fill(Color(.secondarySystemGroupedBackground))
             )
+        }
+    }
+    
+    // MARK: - Transactions Section
+    private var transactionsSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Recent Transactions")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(.primary)
+                
+                Spacer()
+                
+                Button {
+                    // View all
+                } label: {
+                    HStack(spacing: 4) {
+                        Text("See All")
+                            .font(.system(size: 15, weight: .semibold))
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .foregroundStyle(.blue)
+                }
+            }
+            
+            VStack(spacing: 12) {
+                ForEach(recentTransactions) { expense in
+                    TransactionCard(expense: expense)
+                }
+            }
         }
     }
     
@@ -329,159 +405,49 @@ struct HomeView: View {
     }
 }
 
-// MARK: - Quick Stat View
-struct QuickStatView: View {
-    let title: String
-    let amount: Double
-    let color: Color
-    let icon: String
-    
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.9))
-                .frame(width: 32)
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text(formatCurrency(amount))
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(.white)
-                
-                Text(title)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.8))
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-    
-    private func formatCurrency(_ amount: Double) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currency
-        formatter.currencyCode = "USD"
-        formatter.maximumFractionDigits = 0
-        return formatter.string(from: NSNumber(value: amount)) ?? "$0"
-    }
-}
-
-// MARK: - Stat Card
-struct StatCard: View {
-    let title: String
-    let amount: Double
-    let icon: String
-    let color: Color
-    let gradient: [Color]
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                ZStack {
-                    Circle()
-                        .fill(color.opacity(0.2))
-                        .frame(width: 48, height: 48)
-                    
-                    Image(systemName: icon)
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(color)
-                }
-                
-                Spacer()
-            }
-            
-            VStack(alignment: .leading, spacing: 6) {
-                Text(formatCurrency(amount))
-                    .font(.system(size: 26, weight: .bold))
-                    .foregroundStyle(.primary)
-                    .contentTransition(.numericText())
-                
-                Text(title)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(
-                    LinearGradient(
-                        colors: gradient,
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .shadow(color: color.opacity(0.1), radius: 8, x: 0, y: 4)
-        )
-    }
-    
-    private func formatCurrency(_ amount: Double) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currency
-        formatter.currencyCode = "USD"
-        formatter.maximumFractionDigits = 0
-        return formatter.string(from: NSNumber(value: amount)) ?? "$0"
-    }
-}
-
-// MARK: - Category Row
-struct CategoryRow: View {
+// MARK: - Category Card
+struct CategoryCard: View {
     let category: ExpenseCategory
     let amount: Double
     let percentage: Double
-    let rank: Int
     
     var body: some View {
-        HStack(spacing: 14) {
-            // Rank Badge
-            ZStack {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Color(category.color).opacity(0.15))
-                    .frame(width: 44, height: 44)
-                
-                Text("\(rank)")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(Color(category.color))
-            }
-            
-            // Category Icon
-            ZStack {
-                Circle()
-                    .fill(Color(category.color).opacity(0.1))
-                    .frame(width: 40, height: 40)
-                
-                Image(systemName: category.icon)
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(Color(category.color))
-            }
+        HStack(spacing: 16) {
+            Circle()
+                .fill(Color(category.color).opacity(0.15))
+                .frame(width: 50, height: 50)
+                .overlay(
+                    Image(systemName: category.icon)
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(Color(category.color))
+                )
             
             VStack(alignment: .leading, spacing: 6) {
                 Text(category.rawValue)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.primary)
                 
-                // Progress Bar
-                GeometryReader { geometry in
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(Color(.systemGray5))
-                            .frame(height: 6)
-                        
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(Color(category.color))
-                            .frame(width: geometry.size.width * min(percentage, 1.0), height: 6)
-                    }
+                HStack(spacing: 8) {
+                    Text(formatCurrency(amount))
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    
+                    Text("•")
+                        .foregroundStyle(.secondary)
+                    
+                    Text("\(Int(percentage * 100))%")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.secondary)
                 }
-                .frame(height: 6)
             }
             
             Spacer()
             
-            Text(formatCurrency(amount))
-                .font(.system(size: 17, weight: .bold))
-                .foregroundStyle(.primary)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.tertiary)
         }
-        .padding(14)
+        .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 16)
                 .fill(Color(.secondarySystemGroupedBackground))
@@ -497,58 +463,42 @@ struct CategoryRow: View {
     }
 }
 
-// MARK: - Transaction Row
-struct TransactionRow: View {
+// MARK: - Transaction Card
+struct TransactionCard: View {
     let expense: Expense
     
     var body: some View {
         HStack(spacing: 14) {
-            // Category Icon
-            ZStack {
-                Circle()
-                    .fill(Color(expense.category.color).opacity(0.15))
-                    .frame(width: 48, height: 48)
-                
-                Image(systemName: expense.category.icon)
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundStyle(Color(expense.category.color))
-            }
+            Circle()
+                .fill(Color(expense.category.color).opacity(0.15))
+                .frame(width: 46, height: 46)
+                .overlay(
+                    Image(systemName: expense.category.icon)
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(Color(expense.category.color))
+                )
             
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(expense.title)
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.primary)
                 
-                HStack(spacing: 6) {
-                    Text(expense.category.rawValue)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.secondary)
-                    
-                    Text("•")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                    
-                    Text(formatDate(expense.date))
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
+                Text(formatDate(expense.date))
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
             }
             
             Spacer()
             
-            VStack(alignment: .trailing, spacing: 4) {
-                Text(formatCurrency(expense.amount))
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundStyle(expense.type == .income ? .green : .red)
-                
-                if expense.type == .income {
-                    Text("Income")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.green.opacity(0.7))
-                }
-            }
+            Text((expense.type == .income ? "+" : "-") + formatCurrency(expense.amount))
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .foregroundStyle(expense.type == .income ? .green : .primary)
         }
-        .padding(16)
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
     }
     
     private func formatCurrency(_ amount: Double) -> String {
@@ -568,8 +518,7 @@ struct TransactionRow: View {
         } else if calendar.isDateInYesterday(date) {
             return "Yesterday"
         } else {
-            formatter.dateStyle = .short
-            formatter.timeStyle = .none
+            formatter.dateFormat = "MMM d"
             return formatter.string(from: date)
         }
     }
@@ -577,74 +526,206 @@ struct TransactionRow: View {
 
 // MARK: - Sample Data
 let sampleExpenses: [Expense] = [
-    Expense(title: "Salary", amount: 5000, category: .salary, date: Date().addingTimeInterval(-86400 * 5), type: .income),
-    Expense(title: "Grocery Shopping", amount: 150, category: .food, date: Date().addingTimeInterval(-86400 * 1), type: .expense),
-    Expense(title: "Uber Ride", amount: 25, category: .transport, date: Date().addingTimeInterval(-86400 * 2), type: .expense),
-    Expense(title: "Netflix Subscription", amount: 15, category: .entertainment, date: Date().addingTimeInterval(-86400 * 3), type: .expense),
-    Expense(title: "Electric Bill", amount: 120, category: .bills, date: Date().addingTimeInterval(-86400 * 4), type: .expense),
-    Expense(title: "Coffee", amount: 5, category: .food, date: Date().addingTimeInterval(-3600 * 2), type: .expense),
-    Expense(title: "Gym Membership", amount: 50, category: .health, date: Date().addingTimeInterval(-86400 * 7), type: .expense),
-    Expense(title: "Book Purchase", amount: 30, category: .education, date: Date().addingTimeInterval(-86400 * 6), type: .expense),
-    Expense(title: "Freelance Work", amount: 800, category: .salary, date: Date().addingTimeInterval(-86400 * 3), type: .income),
-    Expense(title: "Restaurant", amount: 45, category: .food, date: Date().addingTimeInterval(-3600 * 5), type: .expense)
+    Expense(title: "Monthly Salary", amount: 5000, category: .salary, date: Date().addingTimeInterval(-86400 * 5), type: .income),
+    Expense(title: "Whole Foods", amount: 150, category: .food, date: Date().addingTimeInterval(-86400 * 1), type: .expense),
+    Expense(title: "Uber to Office", amount: 25, category: .transport, date: Date().addingTimeInterval(-86400 * 2), type: .expense),
+    Expense(title: "Netflix", amount: 15, category: .entertainment, date: Date().addingTimeInterval(-86400 * 3), type: .expense),
+    Expense(title: "Electricity", amount: 120, category: .bills, date: Date().addingTimeInterval(-86400 * 4), type: .expense),
+    Expense(title: "Starbucks", amount: 5, category: .food, date: Date().addingTimeInterval(-3600 * 2), type: .expense),
+    Expense(title: "Gym", amount: 50, category: .health, date: Date().addingTimeInterval(-86400 * 7), type: .expense),
+    Expense(title: "Online Course", amount: 30, category: .education, date: Date().addingTimeInterval(-86400 * 6), type: .expense),
+    Expense(title: "Freelance", amount: 800, category: .salary, date: Date().addingTimeInterval(-86400 * 3), type: .income),
+    Expense(title: "Dinner", amount: 45, category: .food, date: Date().addingTimeInterval(-3600 * 5), type: .expense)
 ]
 
-// MARK: - Add Expense View (Placeholder)
+// MARK: - Add Expense View
 struct AddExpenseView: View {
     @Binding var expenses: [Expense]
     @Environment(\.dismiss) var dismiss
+    @Environment(\.colorScheme) var colorScheme
     @State private var title = ""
     @State private var amount = ""
     @State private var selectedCategory: ExpenseCategory = .food
     @State private var selectedType: ExpenseType = .expense
+    @State private var selectedDate = Date()
     
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Details") {
-                    TextField("Title", text: $title)
-                    TextField("Amount", text: $amount)
-                        .keyboardType(.decimalPad)
-                }
+            ZStack {
+                // Background for better visibility in light mode
+                Color(.systemGroupedBackground)
+                    .ignoresSafeArea()
                 
-                Section("Category") {
-                    Picker("Category", selection: $selectedCategory) {
-                        ForEach(ExpenseCategory.allCases, id: \.self) { category in
-                            Text(category.rawValue).tag(category)
+                ScrollView {
+                    VStack(spacing: 24) {
+                        // Amount Input
+                        VStack(spacing: 12) {
+                            Text("Amount")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            
+                            HStack(spacing: 8) {
+                                Text("$")
+                                    .font(.system(size: 36, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.secondary)
+                                
+                                TextField("0", text: $amount)
+                                    .font(.system(size: 48, weight: .bold, design: .rounded))
+                                    .keyboardType(.decimalPad)
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .padding(.bottom, 8)
+                            
+                            Divider()
                         }
+                        .padding(.horizontal, 20)
+                        .padding(.top, 20)
+                        
+                        // Type Selector
+                        VStack(spacing: 12) {
+                            Text("Type")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            
+                            Picker("Type", selection: $selectedType) {
+                                Text("Expense").tag(ExpenseType.expense)
+                                Text("Income").tag(ExpenseType.income)
+                            }
+                            .pickerStyle(.segmented)
+                        }
+                        .padding(.horizontal, 20)
+                        
+                        // Title Input
+                        VStack(spacing: 12) {
+                            Text("Description")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            
+                            TextField("What did you spend on?", text: $title)
+                                .font(.system(size: 16))
+                                .padding(16)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(colorScheme == .dark ? Color(.secondarySystemGroupedBackground) : Color.white)
+                                )
+                        }
+                        .padding(.horizontal, 20)
+                        
+                        // Category Selection
+                        VStack(spacing: 12) {
+                            Text("Category")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            
+                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                                ForEach(ExpenseCategory.allCases, id: \.self) { category in
+                                    Button {
+                                        withAnimation(.spring(response: 0.3)) {
+                                            selectedCategory = category
+                                        }
+                                    } label: {
+                                        VStack(spacing: 8) {
+                                            ZStack {
+                                                Circle()
+                                                    .fill(selectedCategory == category ? Color.white.opacity(0.25) : Color(category.color).opacity(0.15))
+                                                    .frame(width: 44, height: 44)
+                                                
+                                                Image(systemName: category.icon)
+                                                    .font(.system(size: 22, weight: .semibold))
+                                                    .foregroundStyle(selectedCategory == category ? .white : Color(category.color))
+                                            }
+                                            
+                                            Text(category.rawValue)
+                                                .font(.system(size: 11, weight: .semibold))
+                                                .foregroundStyle(selectedCategory == category ? .white : .primary)
+                                                .lineLimit(1)
+                                                .minimumScaleFactor(0.7)
+                                        }
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 12)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 14)
+                                                .fill(selectedCategory == category ? Color(category.color) : (colorScheme == .dark ? Color(.secondarySystemGroupedBackground) : Color.white))
+                                        )
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 14)
+                                                .stroke(selectedCategory == category ? Color.clear : (colorScheme == .dark ? Color.clear : Color(.systemGray4)), lineWidth: 1.5)
+                                        )
+                                        .shadow(color: selectedCategory == category ? Color(category.color).opacity(0.3) : Color.black.opacity(0.05), radius: selectedCategory == category ? 8 : 2, x: 0, y: 2)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                        
+                        // Date Picker
+                        VStack(spacing: 12) {
+                            Text("Date")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            
+                            DatePicker("", selection: $selectedDate, displayedComponents: .date)
+                                .datePickerStyle(.graphical)
+                                .padding(12)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(colorScheme == .dark ? Color(.secondarySystemGroupedBackground) : Color.white)
+                                )
+                        }
+                        .padding(.horizontal, 20)
+                        
+                        // Save Button
+                        Button {
+                            if let amountValue = Double(amount), !title.isEmpty {
+                                let newExpense = Expense(
+                                    title: title,
+                                    amount: amountValue,
+                                    category: selectedCategory,
+                                    date: selectedDate,
+                                    type: selectedType
+                                )
+                                expenses.append(newExpense)
+                                dismiss()
+                            }
+                        } label: {
+                            Text("Add Transaction")
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 16)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .fill(
+                                            LinearGradient(
+                                                colors: [.blue, .purple],
+                                                startPoint: .leading,
+                                                endPoint: .trailing
+                                            )
+                                        )
+                                )
+                                .shadow(color: .blue.opacity(0.3), radius: 8, x: 0, y: 4)
+                        }
+                        .disabled(title.isEmpty || amount.isEmpty)
+                        .opacity(title.isEmpty || amount.isEmpty ? 0.5 : 1)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 20)
                     }
                 }
-                
-                Section("Type") {
-                    Picker("Type", selection: $selectedType) {
-                        Text("Income").tag(ExpenseType.income)
-                        Text("Expense").tag(ExpenseType.expense)
-                    }
-                }
+                .scrollIndicators(.hidden)
             }
-            .navigationTitle("Add Transaction")
+            .navigationTitle("New Transaction")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") {
                         dismiss()
                     }
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Save") {
-                        if let amountValue = Double(amount), !title.isEmpty {
-                            let newExpense = Expense(
-                                title: title,
-                                amount: amountValue,
-                                category: selectedCategory,
-                                date: Date(),
-                                type: selectedType
-                            )
-                            expenses.append(newExpense)
-                            dismiss()
-                        }
-                    }
-                    .fontWeight(.semibold)
+                    .foregroundStyle(.primary)
                 }
             }
         }
