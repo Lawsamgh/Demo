@@ -158,46 +158,47 @@ struct HomeView: View {
             }
             .padding(.horizontal, 20)
             
-            // Period Toggle
-            HStack {
-                Spacer()
-                
-                HStack(spacing: 0) {
-                    ForEach(TimePeriod.allCases, id: \.self) { period in
-                        Button {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                selectedPeriod = period
-                            }
-                        } label: {
-                            Text(period.rawValue)
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(selectedPeriod == period ? .white : .secondary)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 8)
-                                .background(
-                                    ZStack {
-                                        if selectedPeriod == period {
-                                            Capsule()
-                                                .fill(
-                                                    LinearGradient(
-                                                        colors: [.blue, .purple],
-                                                        startPoint: .leading,
-                                                        endPoint: .trailing
-                                                    )
-                                                )
-                                                .matchedGeometryEffect(id: "period", in: namespace)
-                                        }
-                                    }
-                                )
+            // Enhanced Period Toggle
+            HStack(spacing: 0) {
+                ForEach(TimePeriod.allCases, id: \.self) { period in
+                    Button {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            selectedPeriod = period
                         }
+                    } label: {
+                        Text(period.rawValue)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(selectedPeriod == period ? .white : (colorScheme == .dark ? .secondary : .primary))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                            .background(
+                                ZStack {
+                                    if selectedPeriod == period {
+                                        Capsule()
+                                            .fill(
+                                                LinearGradient(
+                                                    colors: [.blue, .purple],
+                                                    startPoint: .leading,
+                                                    endPoint: .trailing
+                                                )
+                                            )
+                                            .shadow(color: .blue.opacity(0.4), radius: 6, x: 0, y: 2)
+                                            .matchedGeometryEffect(id: "period", in: namespace)
+                                    }
+                                }
+                            )
                     }
                 }
-                .background(
-                    Capsule()
-                        .fill(Color(.tertiarySystemGroupedBackground))
-                )
-                .frame(width: 200)
             }
+            .background(
+                Capsule()
+                    .fill(colorScheme == .dark ? Color(.tertiarySystemGroupedBackground) : Color.white)
+                    .shadow(color: Color.black.opacity(colorScheme == .dark ? 0 : 0.08), radius: 8, x: 0, y: 2)
+            )
+            .overlay(
+                Capsule()
+                    .stroke(colorScheme == .dark ? Color.clear : Color(.systemGray5), lineWidth: 1)
+            )
             .padding(.horizontal, 20)
             
             // Balance Section
@@ -282,7 +283,7 @@ struct HomeView: View {
     private var statsOverview: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Categories")
-                .font(.system(size: 20, weight: .bold))
+                .font(.system(size: 16, weight: .bold))
                 .foregroundStyle(.primary)
             
             VStack(spacing: 12) {
@@ -318,7 +319,7 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("Spending Trend")
-                    .font(.system(size: 20, weight: .bold))
+                    .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(.primary)
                 
                 Spacer()
@@ -363,7 +364,7 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("Recent Transactions")
-                    .font(.system(size: 20, weight: .bold))
+                    .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(.primary)
                 
                 Spacer()
