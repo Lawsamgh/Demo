@@ -71,10 +71,6 @@ struct HomeView: View {
                         spendingPreview
                             .padding(.horizontal, 20)
                         
-                        // Stats Overview
-                        statsOverview
-                            .padding(.horizontal, 20)
-                        
                         // Transactions List
                         transactionsSection
                             .padding(.horizontal, 20)
@@ -283,7 +279,7 @@ struct HomeView: View {
     private var statsOverview: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Categories")
-                .font(.system(size: 16, weight: .bold))
+                .font(.system(size: 20, weight: .bold))
                 .foregroundStyle(.primary)
             
             VStack(spacing: 12) {
@@ -319,7 +315,7 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("Spending Trend")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(.primary)
                 
                 Spacer()
@@ -329,33 +325,8 @@ struct HomeView: View {
                     .foregroundStyle(.secondary)
             }
             
-            // Simple Bar Chart
-            HStack(alignment: .bottom, spacing: 8) {
-                ForEach(0..<7, id: \.self) { index in
-                    VStack(spacing: 6) {
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(
-                                LinearGradient(
-                                    colors: index == 6 ? [.blue, .purple] : [Color(.systemGray4), Color(.systemGray5)],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
-                            )
-                            .frame(height: CGFloat.random(in: 40...120))
-                        
-                        Text(["M", "T", "W", "T", "F", "S", "S"][index])
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-            }
-            .frame(height: 140)
-            .padding(20)
-            .background(
-                RoundedRectangle(cornerRadius: 20)
-                    .fill(Color(.secondarySystemGroupedBackground))
-            )
+            // Animated Bar Chart
+            SpendingChartView()
         }
     }
     
@@ -364,7 +335,7 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("Recent Transactions")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(.primary)
                 
                 Spacer()
@@ -403,6 +374,142 @@ struct HomeView: View {
         let firstInitial = user.firstName.prefix(1).uppercased()
         let lastInitial = user.lastName.prefix(1).uppercased()
         return "\(firstInitial)\(lastInitial)"
+    }
+}
+
+// MARK: - Spending Chart View
+struct SpendingChartView: View {
+    @State private var animateChart = false
+    @State private var selectedBar: Int? = 6
+    @Environment(\.colorScheme) var colorScheme
+    
+    let barHeights: [CGFloat] = [60, 85, 45, 95, 70, 110, 130]
+    let amounts: [Double] = [120, 180, 90, 200, 150, 240, 280]
+    let days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    
+    var body: some View {
+        VStack(spacing: 16) {
+            // Chart Area
+            HStack(alignment: .bottom, spacing: 8) {
+                ForEach(0..<7, id: \.self) { index in
+                    VStack(spacing: 6) {
+                        // Bar
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(
+                                LinearGradient(
+                                    colors: selectedBar == index ? 
+                                        [.blue, .purple] : 
+                                        [colorScheme == .dark ? Color(.systemGray5) : Color(.systemGray4), 
+                                         colorScheme == .dark ? Color(.systemGray6) : Color(.systemGray5)],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+                            .frame(height: animateChart ? barHeights[index] : 0)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [.white.opacity(0.3), .clear],
+                                            startPoint: .top,
+                                            endPoint: .bottom
+                                        )
+                                    )
+                                    .frame(height: animateChart ? barHeights[index] : 0)
+                            )
+                            .shadow(
+                                color: selectedBar == index ? 
+                                    Color.blue.opacity(0.3) : 
+                                    Color.black.opacity(0.05),
+                                radius: selectedBar == index ? 8 : 2,
+                                x: 0,
+                                y: 4
+                            )
+                            .scaleEffect(selectedBar == index ? 1.05 : 1.0, anchor: .bottom)
+                        
+                        // Day label
+                        Text(days[index].prefix(1))
+                            .font(.system(size: 12, weight: selectedBar == index ? .bold : .medium))
+                            .foregroundStyle(selectedBar == index ? .primary : .secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .onTapGesture {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            selectedBar = index
+                        }
+                    }
+                }
+            }
+            .frame(height: 180)
+            .padding(20)
+            .background(
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(Color(.secondarySystemGroupedBackground))
+                    .shadow(color: Color.black.opacity(colorScheme == .dark ? 0 : 0.05), radius: 10, x: 0, y: 4)
+            )
+            
+            // Summary Stats with Selected Day Info
+            HStack(spacing: 16) {
+                // Selected Day Card
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 4) {
+                        Text(days[selectedBar ?? 6])
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(
+                                LinearGradient(
+                                    colors: [.blue, .purple],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                        Image(systemName: "circle.fill")
+                            .font(.system(size: 6))
+                            .foregroundStyle(.blue)
+                    }
+                    Text("$\(Int(amounts[selectedBar ?? 6]))")
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .foregroundStyle(.primary)
+                        .contentTransition(.numericText())
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(Color(.secondarySystemGroupedBackground))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(
+                                    LinearGradient(
+                                        colors: [.blue.opacity(0.3), .purple.opacity(0.3)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    lineWidth: 2
+                                )
+                        )
+                )
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Daily Avg")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    Text("$180")
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .foregroundStyle(.primary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(Color(.secondarySystemGroupedBackground))
+                )
+            }
+        }
+        .onAppear {
+            withAnimation(.spring(response: 0.8, dampingFraction: 0.7).delay(0.1)) {
+                animateChart = true
+            }
+        }
     }
 }
 
