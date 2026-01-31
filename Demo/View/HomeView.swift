@@ -10,15 +10,30 @@ import SwiftUI
 struct HomeView: View {
     @StateObject private var userSession = UserSession.shared
     @Environment(\.colorScheme) var colorScheme
-    @State private var expenses: [Expense] = sampleExpenses
+    @State private var expenses: [Expense] = []
+    @State private var isLoadingExpenses = false
     @State private var selectedPeriod: TimePeriod = .month
     @State private var showAddExpense = false
     @State private var scrollOffset: CGFloat = 0
+    @State private var showCurrencySheet = false
+    @State private var isSavingCurrency = false
+    @State private var currencyError: String?
+    @State private var showCurrencyError = false
+    
+    private var isCurrencyNotSet: Bool {
+        let c = userSession.currentUser?.currency ?? ""
+        return c.trimmingCharacters(in: .whitespaces).isEmpty
+    }
     
     enum TimePeriod: String, CaseIterable {
         case week = "Week"
         case month = "Month"
         case year = "Year"
+    }
+    
+    // Resolve category by ID from FileMaker categories
+    private func category(for categoryID: String) -> Category? {
+        userSession.categories.first { $0.id == categoryID }
     }
     
     // Computed properties
@@ -38,10 +53,31 @@ struct HomeView: View {
         expenses.sorted { $0.date > $1.date }.prefix(6).map { $0 }
     }
     
-    private var categoryBreakdown: [(category: ExpenseCategory, amount: Double)] {
-        let grouped = Dictionary(grouping: expenses.filter { $0.type == .expense }) { $0.category }
-        return grouped.map { (category: $0.key, amount: $0.value.reduce(0) { $0 + $1.amount }) }
-            .sorted { $0.amount > $1.amount }
+    private var categoryBreakdown: [(category: Category, amount: Double)] {
+        let grouped = Dictionary(grouping: expenses.filter { $0.type == .expense }) { $0.categoryID }
+        return grouped.compactMap { categoryID, expList -> (Category, Double)? in
+            guard let cat = category(for: categoryID) else { return nil }
+            return (cat, expList.reduce(0) { $0 + $1.amount })
+        }.sorted { $0.1 > $1.1 }
+    }
+    
+    /// Spending Trend: last 7 days from Expenses table (fields Date, Amount, Type).
+    /// Uses fetched `expenses` (FileMaker Expenses layout). One entry per day; day 0 = oldest, day 6 = today.
+    /// Only records with Type == expense are summed per day.
+    private var last7DaysSpending: [(dayLabel: String, amount: Double)] {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEE" // Mon, Tue, ...
+        return (0..<7).map { offset in
+            guard let day = calendar.date(byAdding: .day, value: -6 + offset, to: today) else {
+                return (formatter.string(from: today), 0.0)
+            }
+            let dayTotal = expenses
+                .filter { $0.type == .expense && calendar.isDate($0.date, inSameDayAs: day) }
+                .reduce(0.0) { $0 + $1.amount }
+            return (formatter.string(from: day), dayTotal)
+        }
     }
     
     var body: some View {
@@ -59,21 +95,43 @@ struct HomeView: View {
                 
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 24) {
+                        // Currency prompt when not set
+                        if isCurrencyNotSet {
+                            currencyPromptBanner
+                                .padding(.horizontal, 20)
+                                .padding(.top, 8)
+                        }
+                        
                         // Animated Header
                         headerSection
                             .padding(.top, 8)
                         
-                        // Hero Balance Card
-                        heroBalanceCard
-                            .padding(.horizontal, 20)
+                        // Hero Balance Card (skeleton when loading)
+                        if isLoadingExpenses {
+                            heroBalanceCardSkeleton
+                                .padding(.horizontal, 20)
+                        } else {
+                            heroBalanceCard
+                                .padding(.horizontal, 20)
+                        }
                         
-                        // Spending Chart Preview
-                        spendingPreview
-                            .padding(.horizontal, 20)
+                        // Spending Chart Preview (skeleton when loading)
+                        if isLoadingExpenses {
+                            spendingPreviewSkeleton
+                                .padding(.horizontal, 20)
+                        } else {
+                            spendingPreview
+                                .padding(.horizontal, 20)
+                        }
                         
-                        // Transactions List
-                        transactionsSection
-                            .padding(.horizontal, 20)
+                        // Transactions List (skeleton when loading)
+                        if isLoadingExpenses {
+                            transactionsSectionSkeleton
+                                .padding(.horizontal, 20)
+                        } else {
+                            transactionsSection
+                                .padding(.horizontal, 20)
+                        }
                         
                         // Bottom Spacing
                         Color.clear.frame(height: 20)
@@ -116,7 +174,140 @@ struct HomeView: View {
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
             }
+            .sheet(isPresented: $showCurrencySheet) {
+                CurrencyPickerSheet(
+                    currentCurrency: userSession.currentUser?.currency,
+                    isSaving: $isSavingCurrency,
+                    onSelect: { currency in Task { await saveCurrency(currency) } },
+                    onDismiss: { showCurrencySheet = false }
+                )
+            }
+            .alert("Currency Error", isPresented: $showCurrencyError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(currencyError ?? "Failed to save currency")
+            }
+            .task {
+                await loadExpenses()
+            }
         }
+    }
+    
+    // MARK: - Currency Prompt (when not set)
+    private var currencyPromptBanner: some View {
+        Button {
+            showCurrencySheet = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "coloncurrencysign.circle.fill")
+                    .font(.system(size: 24))
+                    .foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Set your preferred currency")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.primary)
+                    Text("Tap to choose currency for amounts and display")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(Color.orange.opacity(0.12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(Color.orange.opacity(0.3), lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+    }
+    
+    private func saveCurrency(_ currency: String) async {
+        guard let user = userSession.currentUser else { return }
+        isSavingCurrency = true
+        currencyError = nil
+        do {
+            try await FileMakerService.shared.updateUserCurrency(userID: user.userID, currency: currency)
+            await MainActor.run {
+                userSession.updateCurrency(currency)
+                showCurrencySheet = false
+            }
+        } catch {
+            await MainActor.run {
+                currencyError = error.localizedDescription
+                showCurrencyError = true
+            }
+        }
+        isSavingCurrency = false
+    }
+    
+    // MARK: - Modern Loading (shimmer)
+    private var heroBalanceCardSkeleton: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 20) {
+                ShimmerView(height: 72, cornerRadius: 20)
+                    .frame(maxWidth: .infinity)
+                ShimmerView(height: 72, cornerRadius: 20)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+    }
+    
+    private var spendingPreviewSkeleton: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                ShimmerView(width: 120, height: 16, cornerRadius: 6)
+                Spacer()
+                ShimmerView(width: 70, height: 14, cornerRadius: 6)
+            }
+            ShimmerView(height: 220, cornerRadius: 20)
+        }
+    }
+    
+    private var transactionsSectionSkeleton: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                ShimmerView(width: 160, height: 16, cornerRadius: 6)
+                Spacer()
+                ShimmerView(width: 60, height: 14, cornerRadius: 6)
+            }
+            VStack(spacing: 12) {
+                ForEach(0..<5, id: \.self) { _ in
+                    HStack(spacing: 14) {
+                        ShimmerView(width: 46, height: 46, cornerRadius: 23)
+                        VStack(alignment: .leading, spacing: 6) {
+                            ShimmerView(width: 140, height: 14, cornerRadius: 6)
+                            ShimmerView(width: 80, height: 12, cornerRadius: 6)
+                        }
+                        Spacer()
+                        ShimmerView(width: 70, height: 16, cornerRadius: 6)
+                    }
+                    .padding(14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(Color(.secondarySystemGroupedBackground))
+                    )
+                }
+            }
+        }
+    }
+    
+    private func loadExpenses() async {
+        guard let user = userSession.currentUser else { return }
+        isLoadingExpenses = true
+        do {
+            let fetched = try await FileMakerService.shared.fetchExpenses(userID: user.userID)
+            await MainActor.run { expenses = fetched }
+        } catch {
+            print("❌ Failed to load expenses: \(error.localizedDescription)")
+        }
+        isLoadingExpenses = false
     }
     
     // MARK: - Header Section
@@ -203,11 +394,15 @@ struct HomeView: View {
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(.secondary)
                 
-                Text(formatCurrency(balance))
-                    .font(.system(size: 40, weight: .regular, design: .rounded))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.5)
+                if isLoadingExpenses {
+                    ShimmerView(width: 160, height: 44, cornerRadius: 10)
+                } else {
+                    Text(UserSession.formatCurrency(amount: balance, currencyCode: userSession.currentUser?.currency))
+                        .font(.system(size: 40, weight: .regular, design: .rounded))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.5)
+                }
             }
             .padding(.horizontal, 20)
         }
@@ -241,7 +436,7 @@ struct HomeView: View {
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(.secondary)
                     }
-                    Text(formatCurrency(totalIncome))
+                    Text(UserSession.formatCurrency(amount: totalIncome, currencyCode: userSession.currentUser?.currency))
                         .font(.system(size: 16, weight: .regular, design: .rounded))
                         .foregroundStyle(.primary)
                 }
@@ -261,7 +456,7 @@ struct HomeView: View {
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(.secondary)
                     }
-                    Text(formatCurrency(totalExpenses))
+                    Text(UserSession.formatCurrency(amount: totalExpenses, currencyCode: userSession.currentUser?.currency))
                         .font(.system(size: 16, weight: .regular, design: .rounded))
                         .foregroundStyle(.primary)
                 }
@@ -283,11 +478,12 @@ struct HomeView: View {
                 .foregroundStyle(.primary)
             
             VStack(spacing: 12) {
-                ForEach(Array(categoryBreakdown.prefix(3).enumerated()), id: \.element.category) { index, item in
+                ForEach(Array(categoryBreakdown.prefix(3).enumerated()), id: \.element.category.id) { index, item in
                     CategoryCard(
                         category: item.category,
                         amount: item.amount,
-                        percentage: item.amount / totalExpenses
+                        percentage: totalExpenses > 0 ? item.amount / totalExpenses : 0,
+                        currencyCode: userSession.currentUser?.currency
                     )
                 }
             }
@@ -310,7 +506,7 @@ struct HomeView: View {
         }
     }
     
-    // MARK: - Spending Preview
+    // MARK: - Spending Preview (data from Expenses: Date, Amount, Type)
     private var spendingPreview: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
@@ -326,7 +522,7 @@ struct HomeView: View {
             }
             
             // Animated Bar Chart
-            SpendingChartView()
+            SpendingChartView(dailyData: last7DaysSpending, currencyCode: userSession.currentUser?.currency)
         }
     }
     
@@ -355,21 +551,13 @@ struct HomeView: View {
             
             VStack(spacing: 12) {
                 ForEach(recentTransactions) { expense in
-                    TransactionCard(expense: expense)
+                    TransactionCard(expense: expense, category: category(for: expense.categoryID), currencyCode: userSession.currentUser?.currency)
                 }
             }
         }
     }
     
     // MARK: - Helper Functions
-    private func formatCurrency(_ amount: Double) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currency
-        formatter.currencyCode = "USD"
-        formatter.maximumFractionDigits = 0
-        return formatter.string(from: NSNumber(value: amount)) ?? "$0"
-    }
-    
     private func getInitials(from user: User) -> String {
         let firstInitial = user.firstName.prefix(1).uppercased()
         let lastInitial = user.lastName.prefix(1).uppercased()
@@ -377,27 +565,56 @@ struct HomeView: View {
     }
 }
 
-// MARK: - Spending Chart View
+// MARK: - Spending Chart View (fed by Expenses table: Date, Amount, Type via last7DaysSpending)
 struct SpendingChartView: View {
+    /// dailyData: last 7 days (dayLabel, amount) from Expenses table—Date, Amount, Type (expense only)
+    let dailyData: [(dayLabel: String, amount: Double)]
+    let currencyCode: String?
     @State private var animateChart = false
-    @State private var selectedBar: Int? = 6
+    @State private var selectedBar: Int = 6
     @Environment(\.colorScheme) var colorScheme
     
-    let barHeights: [CGFloat] = [60, 85, 45, 95, 70, 110, 130]
-    let amounts: [Double] = [120, 180, 90, 200, 150, 240, 280]
-    let days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    private static let maxBarHeight: CGFloat = 130
+    private static let minBarHeight: CGFloat = 10
+    private var amounts: [Double] { dailyData.map(\.amount) }
+    private var dayLabels: [String] { dailyData.map(\.dayLabel) }
+    
+    private var barHeights: [CGFloat] {
+        let maxAmount = amounts.max() ?? 0
+        if maxAmount > 0 {
+            return amounts.map { amount in
+                let h = CGFloat(amount / maxAmount) * Self.maxBarHeight
+                return max(h, Self.minBarHeight)
+            }
+        }
+        return amounts.map { _ in Self.minBarHeight }
+    }
+    
+    private var dailyAverage: Double {
+        let total = amounts.reduce(0, +)
+        return amounts.isEmpty ? 0 : total / Double(amounts.count)
+    }
+    
+    private var safeSelectedIndex: Int {
+        let i = min(max(0, selectedBar), dayLabels.count - 1)
+        return dayLabels.isEmpty ? 0 : i
+    }
     
     var body: some View {
+        let count = dayLabels.count
+        let indices = count > 0 ? (0..<count).map { $0 } : (0..<7).map { _ in 0 }
+        
         VStack(spacing: 16) {
             // Chart Area
             HStack(alignment: .bottom, spacing: 8) {
-                ForEach(0..<7, id: \.self) { index in
+                ForEach(Array(indices.enumerated()), id: \.offset) { index, _ in
+                    let i = index
                     VStack(spacing: 6) {
                         // Bar
                         RoundedRectangle(cornerRadius: 8)
                             .fill(
                                 LinearGradient(
-                                    colors: selectedBar == index ? 
+                                    colors: selectedBar == i ? 
                                         [.blue, .purple] : 
                                         [colorScheme == .dark ? Color(.systemGray5) : Color(.systemGray4), 
                                          colorScheme == .dark ? Color(.systemGray6) : Color(.systemGray5)],
@@ -405,7 +622,7 @@ struct SpendingChartView: View {
                                     endPoint: .bottom
                                 )
                             )
-                            .frame(height: animateChart ? barHeights[index] : 0)
+                            .frame(height: animateChart ? (i < barHeights.count ? barHeights[i] : 0) : 0)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 8)
                                     .fill(
@@ -415,27 +632,27 @@ struct SpendingChartView: View {
                                             endPoint: .bottom
                                         )
                                     )
-                                    .frame(height: animateChart ? barHeights[index] : 0)
+                                    .frame(height: animateChart ? (i < barHeights.count ? barHeights[i] : 0) : 0)
                             )
                             .shadow(
-                                color: selectedBar == index ? 
+                                color: selectedBar == i ? 
                                     Color.blue.opacity(0.3) : 
                                     Color.black.opacity(0.05),
-                                radius: selectedBar == index ? 8 : 2,
+                                radius: selectedBar == i ? 8 : 2,
                                 x: 0,
                                 y: 4
                             )
-                            .scaleEffect(selectedBar == index ? 1.05 : 1.0, anchor: .bottom)
+                            .scaleEffect(selectedBar == i ? 1.05 : 1.0, anchor: .bottom)
                         
                         // Day label
-                        Text(days[index].prefix(1))
-                            .font(.system(size: 12, weight: selectedBar == index ? .bold : .medium))
-                            .foregroundStyle(selectedBar == index ? .primary : .secondary)
+                        Text(i < dayLabels.count ? String(dayLabels[i].prefix(1)) : "")
+                            .font(.system(size: 12, weight: selectedBar == i ? .bold : .medium))
+                            .foregroundStyle(selectedBar == i ? .primary : .secondary)
                     }
                     .frame(maxWidth: .infinity)
                     .onTapGesture {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                            selectedBar = index
+                            selectedBar = i
                         }
                     }
                 }
@@ -453,7 +670,7 @@ struct SpendingChartView: View {
                 // Selected Day Card
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 4) {
-                        Text(days[selectedBar ?? 6])
+                        Text(safeSelectedIndex < dayLabels.count ? dayLabels[safeSelectedIndex] : "")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(
                                 LinearGradient(
@@ -466,7 +683,7 @@ struct SpendingChartView: View {
                             .font(.system(size: 6))
                             .foregroundStyle(.blue)
                     }
-                    Text("$\(Int(amounts[selectedBar ?? 6]))")
+                    Text(UserSession.formatCurrency(amount: safeSelectedIndex < amounts.count ? amounts[safeSelectedIndex] : 0, currencyCode: currencyCode))
                         .font(.system(size: 22, weight: .bold, design: .rounded))
                         .foregroundStyle(.primary)
                         .contentTransition(.numericText())
@@ -493,7 +710,7 @@ struct SpendingChartView: View {
                     Text("Daily Avg")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.secondary)
-                    Text("$180")
+                    Text(UserSession.formatCurrency(amount: dailyAverage, currencyCode: currencyCode))
                         .font(.system(size: 18, weight: .bold, design: .rounded))
                         .foregroundStyle(.primary)
                 }
@@ -506,8 +723,19 @@ struct SpendingChartView: View {
             }
         }
         .onAppear {
+            selectedBar = dayLabels.count > 0 ? dayLabels.count - 1 : 0
             withAnimation(.spring(response: 0.8, dampingFraction: 0.7).delay(0.1)) {
                 animateChart = true
+            }
+        }
+        .onChange(of: dailyData.map(\.amount)) { _, _ in
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                animateChart = true
+            }
+        }
+        .onChange(of: dailyData.count) { _, newCount in
+            if newCount > 0, selectedBar >= newCount {
+                selectedBar = newCount - 1
             }
         }
     }
@@ -515,28 +743,30 @@ struct SpendingChartView: View {
 
 // MARK: - Category Card
 struct CategoryCard: View {
-    let category: ExpenseCategory
+    @Environment(\.colorScheme) var colorScheme
+    let category: Category
     let amount: Double
     let percentage: Double
+    let currencyCode: String?
     
     var body: some View {
         HStack(spacing: 16) {
             Circle()
-                .fill(Color(category.color).opacity(0.15))
+                .fill(Color(category.displayColor).opacity(0.15))
                 .frame(width: 50, height: 50)
                 .overlay(
-                    Image(systemName: category.icon)
+                    Image(systemName: category.displayIcon)
                         .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(Color(category.color))
+                        .foregroundStyle(colorScheme == .dark ? Color(category.displayColor) : .black)
                 )
             
             VStack(alignment: .leading, spacing: 6) {
-                Text(category.rawValue)
+                Text(category.name)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.primary)
                 
                 HStack(spacing: 8) {
-                    Text(formatCurrency(amount))
+                    Text(UserSession.formatCurrency(amount: amount, currencyCode: currencyCode))
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(.secondary)
                     
@@ -561,29 +791,24 @@ struct CategoryCard: View {
                 .fill(Color(.secondarySystemGroupedBackground))
         )
     }
-    
-    private func formatCurrency(_ amount: Double) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currency
-        formatter.currencyCode = "USD"
-        formatter.maximumFractionDigits = 0
-        return formatter.string(from: NSNumber(value: amount)) ?? "$0"
-    }
 }
 
 // MARK: - Transaction Card
 struct TransactionCard: View {
+    @Environment(\.colorScheme) var colorScheme
     let expense: Expense
+    let category: Category?
+    let currencyCode: String?
     
     var body: some View {
         HStack(spacing: 14) {
             Circle()
-                .fill(Color(expense.category.color).opacity(0.15))
+                .fill(Color(category?.displayColor ?? "gray").opacity(0.15))
                 .frame(width: 46, height: 46)
                 .overlay(
-                    Image(systemName: expense.category.icon)
+                    Image(systemName: category?.displayIcon ?? "ellipsis.circle.fill")
                         .font(.system(size: 20, weight: .medium))
-                        .foregroundStyle(Color(expense.category.color))
+                        .foregroundStyle(colorScheme == .dark ? Color(category?.displayColor ?? "gray") : .black)
                 )
             
             VStack(alignment: .leading, spacing: 4) {
@@ -598,7 +823,7 @@ struct TransactionCard: View {
             
             Spacer()
             
-            Text((expense.type == .income ? "+" : "-") + formatCurrency(expense.amount))
+            Text((expense.type == .income ? "+" : "-") + UserSession.formatCurrency(amount: expense.amount, currencyCode: currencyCode))
                 .font(.system(size: 16, weight: .bold, design: .rounded))
                 .foregroundStyle(expense.type == .income ? .green : .primary)
         }
@@ -607,14 +832,6 @@ struct TransactionCard: View {
             RoundedRectangle(cornerRadius: 16)
                 .fill(Color(.secondarySystemGroupedBackground))
         )
-    }
-    
-    private func formatCurrency(_ amount: Double) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currency
-        formatter.currencyCode = "USD"
-        formatter.maximumFractionDigits = 0
-        return formatter.string(from: NSNumber(value: amount)) ?? "$0"
     }
     
     private func formatDate(_ date: Date) -> String {
@@ -632,35 +849,68 @@ struct TransactionCard: View {
     }
 }
 
-// MARK: - Sample Data
-let sampleExpenses: [Expense] = [
-    Expense(title: "Monthly Salary", amount: 5000, category: .salary, date: Date().addingTimeInterval(-86400 * 5), type: .income),
-    Expense(title: "Whole Foods", amount: 150, category: .food, date: Date().addingTimeInterval(-86400 * 1), type: .expense),
-    Expense(title: "Uber to Office", amount: 25, category: .transport, date: Date().addingTimeInterval(-86400 * 2), type: .expense),
-    Expense(title: "Netflix", amount: 15, category: .entertainment, date: Date().addingTimeInterval(-86400 * 3), type: .expense),
-    Expense(title: "Electricity", amount: 120, category: .bills, date: Date().addingTimeInterval(-86400 * 4), type: .expense),
-    Expense(title: "Starbucks", amount: 5, category: .food, date: Date().addingTimeInterval(-3600 * 2), type: .expense),
-    Expense(title: "Gym", amount: 50, category: .health, date: Date().addingTimeInterval(-86400 * 7), type: .expense),
-    Expense(title: "Online Course", amount: 30, category: .education, date: Date().addingTimeInterval(-86400 * 6), type: .expense),
-    Expense(title: "Freelance", amount: 800, category: .salary, date: Date().addingTimeInterval(-86400 * 3), type: .income),
-    Expense(title: "Dinner", amount: 45, category: .food, date: Date().addingTimeInterval(-3600 * 5), type: .expense)
-]
+// MARK: - Modern Shimmer Loading (iPhone-style)
+struct ShimmerView: View {
+    @Environment(\.colorScheme) var colorScheme
+    var width: CGFloat? = nil
+    var height: CGFloat = 12
+    var cornerRadius: CGFloat = 8
+    
+    private var baseColor: Color {
+        colorScheme == .dark ? Color(.systemGray5) : Color(.systemGray5)
+    }
+    
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius)
+            .fill(baseColor)
+            .frame(width: width, height: height)
+            .overlay(
+                TimelineView(.animation(minimumInterval: 0.016)) { timeline in
+                    let t = timeline.date.timeIntervalSinceReferenceDate
+                    let cycle: TimeInterval = 1.4
+                    let p = CGFloat((t.truncatingRemainder(dividingBy: cycle)) / cycle)
+                    GeometryReader { geo in
+                        let w = geo.size.width
+                        RoundedRectangle(cornerRadius: cornerRadius)
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        .clear,
+                                        .white.opacity(colorScheme == .dark ? 0.18 : 0.4),
+                                        .clear
+                                    ],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .frame(width: w * 0.5)
+                            .offset(x: -w * 0.5 + p * (w + w * 0.5))
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+                }
+            )
+    }
+}
 
 // MARK: - Add Expense View
 struct AddExpenseView: View {
     @Binding var expenses: [Expense]
+    @StateObject private var userSession = UserSession.shared
     @Environment(\.dismiss) var dismiss
     @Environment(\.colorScheme) var colorScheme
-    @State private var title = ""
+    @State private var descriptionText = ""
     @State private var amount = ""
-    @State private var selectedCategory: ExpenseCategory = .food
+    @State private var selectedCategory: Category?
     @State private var selectedType: ExpenseType = .expense
     @State private var selectedDate = Date()
+    @State private var paymentMethod = ""
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+    @State private var showErrorAlert = false
     
     var body: some View {
         NavigationStack {
             ZStack {
-                // Background for better visibility in light mode
                 Color(.systemGroupedBackground)
                     .ignoresSafeArea()
                 
@@ -674,7 +924,7 @@ struct AddExpenseView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             
                             HStack(spacing: 8) {
-                                Text("$")
+                                Text(UserSession.currencySymbol(for: userSession.currentUser?.currency))
                                     .font(.system(size: 36, weight: .bold, design: .rounded))
                                     .foregroundStyle(.secondary)
                                 
@@ -705,14 +955,14 @@ struct AddExpenseView: View {
                         }
                         .padding(.horizontal, 20)
                         
-                        // Title Input
+                        // Description Input (FileMaker: Description)
                         VStack(spacing: 12) {
                             Text("Description")
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             
-                            TextField("What did you spend on?", text: $title)
+                            TextField("What did you spend on?", text: $descriptionText)
                                 .font(.system(size: 16))
                                 .padding(16)
                                 .background(
@@ -722,55 +972,111 @@ struct AddExpenseView: View {
                         }
                         .padding(.horizontal, 20)
                         
-                        // Category Selection
-                        VStack(spacing: 12) {
+                        // Category Selection (from FileMaker Category table) — list layout for visibility
+                        VStack(alignment: .leading, spacing: 10) {
                             Text("Category")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(.primary)
+                                .padding(.horizontal, 4)
                             
-                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                                ForEach(ExpenseCategory.allCases, id: \.self) { category in
-                                    Button {
-                                        withAnimation(.spring(response: 0.3)) {
-                                            selectedCategory = category
-                                        }
-                                    } label: {
-                                        VStack(spacing: 8) {
-                                            ZStack {
-                                                Circle()
-                                                    .fill(selectedCategory == category ? Color.white.opacity(0.25) : Color(category.color).opacity(0.15))
-                                                    .frame(width: 44, height: 44)
-                                                
-                                                Image(systemName: category.icon)
-                                                    .font(.system(size: 22, weight: .semibold))
-                                                    .foregroundStyle(selectedCategory == category ? .white : Color(category.color))
+                            if userSession.categories.isEmpty {
+                                Text("No categories. Add categories in Settings.")
+                                    .font(.system(size: 15))
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(16)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .fill(colorScheme == .dark ? Color(.secondarySystemGroupedBackground) : Color(.systemGray6))
+                                    )
+                            } else {
+                                VStack(spacing: 0) {
+                                    ForEach(Array(userSession.categories.enumerated()), id: \.element.id) { index, category in
+                                        let isSelected = selectedCategory?.id == category.id
+                                        Button {
+                                            withAnimation(.spring(response: 0.3)) {
+                                                selectedCategory = category
                                             }
-                                            
-                                            Text(category.rawValue)
-                                                .font(.system(size: 11, weight: .semibold))
-                                                .foregroundStyle(selectedCategory == category ? .white : .primary)
-                                                .lineLimit(1)
-                                                .minimumScaleFactor(0.7)
+                                        } label: {
+                                            HStack(spacing: 14) {
+                                                // Colored icon circle — high contrast so icon is always visible
+                                                ZStack {
+                                                    Circle()
+                                                        .fill(Color(category.displayColor).opacity(isSelected ? 0.9 : 0.22))
+                                                        .frame(width: 44, height: 44)
+                                                    Circle()
+                                                        .stroke(Color(category.displayColor).opacity(isSelected ? 0 : 0.4), lineWidth: 1.5)
+                                                        .frame(width: 44, height: 44)
+                                                    Image(systemName: category.displayIcon)
+                                                        .font(.system(size: 20, weight: .semibold))
+                                                        .foregroundStyle(colorScheme == .light ? .black : (isSelected ? .white : .primary))
+                                                }
+                                                
+                                                // Category name — primary text for strong contrast
+                                                Text(category.name)
+                                                    .font(.system(size: 16, weight: .medium))
+                                                    .foregroundStyle(.primary)
+                                                    .multilineTextAlignment(.leading)
+                                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                                
+                                                // Checkmark at right end when selected
+                                                if isSelected {
+                                                    Image(systemName: "checkmark.circle.fill")
+                                                        .font(.system(size: 24))
+                                                        .foregroundStyle(.green)
+                                                }
+                                            }
+                                            .padding(.horizontal, 16)
+                                            .padding(.vertical, 14)
+                                            .background(
+                                                Rectangle()
+                                                    .fill(isSelected ? Color(category.displayColor).opacity(0.12) : (colorScheme == .dark ? Color(.secondarySystemGroupedBackground) : Color.white))
+                                            )
+                                            .overlay(
+                                                Rectangle()
+                                                    .frame(width: 4)
+                                                    .foregroundStyle(isSelected ? Color(category.displayColor) : Color.clear),
+                                                alignment: .leading
+                                            )
                                         }
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 12)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 14)
-                                                .fill(selectedCategory == category ? Color(category.color) : (colorScheme == .dark ? Color(.secondarySystemGroupedBackground) : Color.white))
-                                        )
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 14)
-                                                .stroke(selectedCategory == category ? Color.clear : (colorScheme == .dark ? Color.clear : Color(.systemGray4)), lineWidth: 1.5)
-                                        )
-                                        .shadow(color: selectedCategory == category ? Color(category.color).opacity(0.3) : Color.black.opacity(0.05), radius: selectedCategory == category ? 8 : 2, x: 0, y: 2)
+                                        .buttonStyle(.plain)
+                                        
+                                        if index < userSession.categories.count - 1 {
+                                            Divider()
+                                                .padding(.leading, 74)
+                                        }
                                     }
                                 }
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(colorScheme == .dark ? Color(.secondarySystemGroupedBackground) : Color.white)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .stroke(Color(.systemGray4), lineWidth: 1)
+                                )
                             }
                         }
                         .padding(.horizontal, 20)
                         
-                        // Date Picker
+                        // Payment Method (FileMaker: PaymentMethod)
+                        VStack(spacing: 12) {
+                            Text("Payment Method")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            
+                            TextField("e.g. Cash, Card", text: $paymentMethod)
+                                .font(.system(size: 16))
+                                .padding(16)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(colorScheme == .dark ? Color(.secondarySystemGroupedBackground) : Color.white)
+                                )
+                        }
+                        .padding(.horizontal, 20)
+                        
+                        // Date Picker (FileMaker: Date)
                         VStack(spacing: 12) {
                             Text("Date")
                                 .font(.system(size: 13, weight: .medium))
@@ -789,37 +1095,34 @@ struct AddExpenseView: View {
                         
                         // Save Button
                         Button {
-                            if let amountValue = Double(amount), !title.isEmpty {
-                                let newExpense = Expense(
-                                    title: title,
-                                    amount: amountValue,
-                                    category: selectedCategory,
-                                    date: selectedDate,
-                                    type: selectedType
-                                )
-                                expenses.append(newExpense)
-                                dismiss()
-                            }
+                            Task { await saveTransaction() }
                         } label: {
-                            Text("Add Transaction")
-                                .font(.system(size: 17, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 16)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 16)
-                                        .fill(
-                                            LinearGradient(
-                                                colors: [.blue, .purple],
-                                                startPoint: .leading,
-                                                endPoint: .trailing
-                                            )
+                            HStack {
+                                if isSaving {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                } else {
+                                    Text("Add Transaction")
+                                        .font(.system(size: 17, weight: .semibold))
+                                }
+                            }
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [.blue, .purple],
+                                            startPoint: .leading,
+                                            endPoint: .trailing
                                         )
-                                )
-                                .shadow(color: .blue.opacity(0.3), radius: 8, x: 0, y: 4)
+                                    )
+                            )
+                            .shadow(color: .blue.opacity(0.3), radius: 8, x: 0, y: 4)
                         }
-                        .disabled(title.isEmpty || amount.isEmpty)
-                        .opacity(title.isEmpty || amount.isEmpty ? 0.5 : 1)
+                        .disabled(!canSave || isSaving)
+                        .opacity(!canSave || isSaving ? 0.5 : 1)
                         .padding(.horizontal, 20)
                         .padding(.bottom, 20)
                     }
@@ -836,7 +1139,68 @@ struct AddExpenseView: View {
                     .foregroundStyle(.primary)
                 }
             }
+            .onAppear {
+                if selectedCategory == nil, let first = userSession.categories.first {
+                    selectedCategory = first
+                }
+            }
+            .alert("Error", isPresented: $showErrorAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(errorMessage ?? "Something went wrong")
+            }
         }
+    }
+    
+    private var canSave: Bool {
+        guard let amountValue = Double(amount), amountValue > 0,
+              !descriptionText.trimmingCharacters(in: .whitespaces).isEmpty,
+              selectedCategory != nil else { return false }
+        return true
+    }
+    
+    private func saveTransaction() async {
+        guard let user = userSession.currentUser,
+              let category = selectedCategory,
+              let amountValue = Double(amount), amountValue > 0 else { return }
+        
+        let desc = descriptionText.trimmingCharacters(in: .whitespaces)
+        let payment = paymentMethod.trimmingCharacters(in: .whitespaces).isEmpty ? "Other" : paymentMethod.trimmingCharacters(in: .whitespaces)
+        
+        isSaving = true
+        errorMessage = nil
+        
+        do {
+            let recordId = try await FileMakerService.shared.createExpense(
+                userID: user.userID,
+                date: selectedDate,
+                amount: amountValue,
+                categoryID: category.id,
+                paymentMethod: payment,
+                description: desc,
+                type: selectedType
+            )
+            let newExpense = Expense(
+                id: recordId,
+                title: desc,
+                amount: amountValue,
+                categoryID: category.id,
+                date: selectedDate,
+                type: selectedType,
+                paymentMethod: payment,
+                notes: nil
+            )
+            await MainActor.run {
+                expenses.append(newExpense)
+                dismiss()
+            }
+        } catch {
+            await MainActor.run {
+                errorMessage = error.localizedDescription
+                showErrorAlert = true
+            }
+        }
+        isSaving = false
     }
 }
 

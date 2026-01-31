@@ -131,6 +131,7 @@ struct CategoryManagementView: View {
 
 // MARK: - Category Row View
 struct CategoryRowView: View {
+    @Environment(\.colorScheme) var colorScheme
     let category: Category
     
     var body: some View {
@@ -143,7 +144,7 @@ struct CategoryRowView: View {
                 
                 Image(systemName: category.displayIcon)
                     .font(.system(size: 22, weight: .medium))
-                    .foregroundStyle(colorFromString(category.displayColor))
+                    .foregroundStyle(colorScheme == .dark ? colorFromString(category.displayColor) : .black)
             }
             
             VStack(alignment: .leading, spacing: 4) {

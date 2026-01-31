@@ -144,6 +144,27 @@ class FileMakerService {
         }
     }
     
+    /// Creates a new expense/transaction record in FileMaker
+    func createExpense(userID: String, date: Date, amount: Double, categoryID: String, paymentMethod: String, description: String, type: ExpenseType) async throws -> String {
+        return try await withSession { token in
+            try await self.performCreateExpense(userID: userID, date: date, amount: amount, categoryID: categoryID, paymentMethod: paymentMethod, description: description, type: type, token: token)
+        }
+    }
+    
+    /// Fetches expenses for a specific user from FileMaker
+    func fetchExpenses(userID: String) async throws -> [Expense] {
+        return try await withSession { token in
+            try await self.performFetchExpenses(userID: userID, token: token)
+        }
+    }
+    
+    /// Updates the user's preferred currency in FileMaker (test_table_login.Currency)
+    func updateUserCurrency(userID: String, currency: String) async throws {
+        return try await withSession { token in
+            try await self.performUpdateUserCurrency(userID: userID, currency: currency, token: token)
+        }
+    }
+    
     /// Logs out and clears the session
     func logout() async {
         if let token = sessionManager.token {
@@ -241,11 +262,12 @@ class FileMakerService {
             let firstName = userData.fieldData.first_name ?? ""
             let lastName = userData.fieldData.last_name ?? ""
             let userID = userData.recordId // Get the PrimaryKey (recordId)
+            let currency = userData.fieldData.Currency?.trimmingCharacters(in: .whitespaces).isEmpty == false ? userData.fieldData.Currency : nil
             print("✅ Login successful!")
             print("📋 PrimaryKey (recordId) from test_table_login: '\(userID)'")
             print("📋 PrimaryKey type: \(type(of: userID))")
             print("📋 This PrimaryKey will be used to filter Category table by UserID field")
-            return User(userID: userID, firstName: firstName, lastName: lastName, email: email)
+            return User(userID: userID, firstName: firstName, lastName: lastName, email: email, currency: currency)
         } else {
             try handleErrorResponse(data: data, statusCode: httpResponse.statusCode)
             throw FileMakerError.userNotFound
@@ -431,6 +453,160 @@ class FileMakerService {
             try handleErrorResponse(data: data, statusCode: httpResponse.statusCode)
             throw FileMakerError.httpError(statusCode: httpResponse.statusCode)
         }
+    }
+    
+    /// Updates the user's Currency field in FileMaker (test_table_login)
+    private func performUpdateUserCurrency(userID: String, currency: String, token: String) async throws {
+        let endpoint = "layouts/\(FileMakerConfig.layoutName)/records/\(userID)"
+        let url = try requestBuilder.buildURL(endpoint: endpoint)
+        
+        let fieldData: [String: Any] = [
+            FileMakerConfig.userCurrencyField: currency
+        ]
+        let body = try requestBuilder.createRecordBody(fieldData: fieldData)
+        let request = requestBuilder.createRequest(url: url, method: "PATCH", body: body, sessionToken: token)
+        
+        print("📝 Updating user currency in FileMaker: \(currency)")
+        let (data, response) = try await performRequest(request: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw FileMakerError.invalidResponse
+        }
+        
+        if httpResponse.statusCode == 200 {
+            print("✅ Currency updated successfully")
+            return
+        }
+        try handleErrorResponse(data: data, statusCode: httpResponse.statusCode)
+        throw FileMakerError.httpError(statusCode: httpResponse.statusCode)
+    }
+    
+    /// Creates an expense record in FileMaker
+    private func performCreateExpense(userID: String, date: Date, amount: Double, categoryID: String, paymentMethod: String, description: String, type: ExpenseType, token: String) async throws -> String {
+        let endpoint = "layouts/\(FileMakerConfig.expenseLayoutName)/records"
+        let url = try requestBuilder.buildURL(endpoint: endpoint)
+        
+        // FileMaker often expects MM/dd/yyyy for Date field validation
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "MM/dd/yyyy"
+        let dateString = dateFormatter.string(from: date)
+        
+        let fieldData: [String: Any] = [
+            FileMakerConfig.expenseUserIDField: userID,
+            FileMakerConfig.expenseDateField: dateString,
+            FileMakerConfig.expenseAmountField: amount,
+            FileMakerConfig.expenseCategoryIDField: categoryID,
+            FileMakerConfig.expensePaymentMethodField: paymentMethod,
+            FileMakerConfig.expenseDescriptionField: description,
+            FileMakerConfig.expenseTypeField: type.rawValue
+        ]
+        
+        let body = try requestBuilder.createRecordBody(fieldData: fieldData)
+        let request = requestBuilder.createRequest(url: url, method: "POST", body: body, sessionToken: token)
+        
+        print("📝 Creating expense record in FileMaker...")
+        let (data, response) = try await performRequest(request: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw FileMakerError.invalidResponse
+        }
+        
+        if httpResponse.statusCode == 200 || httpResponse.statusCode == 201 {
+            let createResponse = try JSONDecoder().decode(FileMakerCreateResponse.self, from: data)
+            if let recordId = createResponse.response?.recordId {
+                print("✅ Expense record created: \(recordId)")
+                return recordId
+            }
+            if let firstMessage = createResponse.messages.first, firstMessage.code != "0" {
+                throw FileMakerError.apiError(code: firstMessage.code, message: firstMessage.message)
+            }
+        }
+        try handleErrorResponse(data: data, statusCode: httpResponse.statusCode)
+        throw FileMakerError.invalidResponse
+    }
+    
+    /// Fetches expenses for a user from FileMaker
+    private func performFetchExpenses(userID: String, token: String) async throws -> [Expense] {
+        let endpoint = "layouts/\(FileMakerConfig.expenseLayoutName)/_find"
+        let url = try requestBuilder.buildURL(endpoint: endpoint)
+        
+        let queryFields: [String: Any] = [
+            FileMakerConfig.expenseUserIDField: "==\(userID)"
+        ]
+        let body = try requestBuilder.createFindQueryWithFields(fields: queryFields, limit: 500)
+        let request = requestBuilder.createRequest(url: url, method: "POST", body: body, sessionToken: token)
+        
+        print("📥 Fetching expenses for UserID: \(userID)")
+        let (data, response) = try await performRequest(request: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw FileMakerError.invalidResponse
+        }
+        
+        print("   Expense response status: \(httpResponse.statusCode)")
+        
+        if httpResponse.statusCode == 200 {
+            let expenseResponse: FileMakerExpenseFindResponse
+            do {
+                expenseResponse = try JSONDecoder().decode(FileMakerExpenseFindResponse.self, from: data)
+            } catch {
+                let preview = String(data: data, encoding: .utf8).map { String($0.prefix(600)) } ?? "nil"
+                print("❌ Expense decode failed: \(error)")
+                print("   Response preview: \(preview)")
+                throw error
+            }
+            
+            guard let records = expenseResponse.response?.data else {
+                print("⚠️ No expense data in response (response.data is nil or empty)")
+                if let info = expenseResponse.response?.dataInfo {
+                    print("   dataInfo: foundCount=\(info.foundCount ?? -1), returnedCount=\(info.returnedCount ?? -1)")
+                }
+                return []
+            }
+            
+            print("   Found \(records.count) expense record(s)")
+            
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "yyyy-MM-dd"
+            let dateFormatterAlt = DateFormatter()
+            dateFormatterAlt.dateFormat = "MM/dd/yyyy"
+            
+            let expenses = records.compactMap { record -> Expense? in
+                let amountStr = record.fieldData.Amount
+                let amount = amountStr.flatMap { Double($0) } ?? 0
+                let typeStr = record.fieldData.transactionType?.trimmingCharacters(in: .whitespaces).lowercased()
+                let type: ExpenseType = (typeStr == "income") ? .income : ((typeStr == "expense") ? .expense : .expense)
+                
+                var date = Date()
+                if let dateStr = record.fieldData.Date, !dateStr.isEmpty {
+                    date = dateFormatter.date(from: dateStr)
+                        ?? dateFormatterAlt.date(from: dateStr)
+                        ?? date
+                }
+                
+                return Expense(
+                    id: record.recordId,
+                    title: record.fieldData.Description ?? "",
+                    amount: amount,
+                    categoryID: record.fieldData.CategoryID ?? "",
+                    date: date,
+                    type: type,
+                    paymentMethod: record.fieldData.PaymentMethod,
+                    notes: nil
+                )
+            }
+            
+            print("✅ Loaded \(expenses.count) expense(s)")
+            return expenses
+        }
+        
+        if httpResponse.statusCode == 401, let errorData = try? JSONDecoder().decode(FileMakerExpenseFindResponse.self, from: data),
+           errorData.messages?.first?.code == "401" {
+            print("   No expenses match (401)")
+            return []
+        }
+        try handleErrorResponse(data: data, statusCode: httpResponse.statusCode)
+        throw FileMakerError.httpError(statusCode: httpResponse.statusCode)
     }
     
     // MARK: - Helper Methods

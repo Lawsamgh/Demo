@@ -7,11 +7,33 @@
 
 import SwiftUI
 
+/// Common currencies for selection (code + display name)
+private let currencyOptions: [(code: String, name: String)] = [
+    ("USD", "US Dollar"),
+    ("EUR", "Euro"),
+    ("GBP", "British Pound"),
+    ("GHS", "Ghanaian Cedi"),
+    ("NGN", "Nigerian Naira"),
+    ("XAF", "Central African CFA Franc"),
+    ("XOF", "West African CFA Franc"),
+    ("ZAR", "South African Rand"),
+    ("KES", "Kenyan Shilling"),
+    ("CAD", "Canadian Dollar"),
+    ("AUD", "Australian Dollar"),
+    ("JPY", "Japanese Yen"),
+    ("CHF", "Swiss Franc"),
+    ("CNY", "Chinese Yuan"),
+]
+
 struct SettingView: View {
     @StateObject private var userSession = UserSession.shared
     @Environment(\.colorScheme) var colorScheme
     @State private var showLogoutAlert = false
     @State private var showCategoryManagement = false
+    @State private var showCurrencySheet = false
+    @State private var isSavingCurrency = false
+    @State private var currencyError: String?
+    @State private var showCurrencyError = false
     
     var body: some View {
         NavigationStack {
@@ -57,6 +79,40 @@ struct SettingView: View {
         .sheet(isPresented: $showCategoryManagement) {
             CategoryManagementView()
         }
+        .sheet(isPresented: $showCurrencySheet) {
+            CurrencyPickerSheet(
+                currentCurrency: userSession.currentUser?.currency,
+                isSaving: $isSavingCurrency,
+                onSelect: { currency in
+                    Task { await saveCurrency(currency) }
+                },
+                onDismiss: { showCurrencySheet = false }
+            )
+        }
+        .alert("Currency Error", isPresented: $showCurrencyError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(currencyError ?? "Failed to save currency")
+        }
+    }
+    
+    private func saveCurrency(_ currency: String) async {
+        guard let user = userSession.currentUser else { return }
+        isSavingCurrency = true
+        currencyError = nil
+        do {
+            try await FileMakerService.shared.updateUserCurrency(userID: user.userID, currency: currency)
+            await MainActor.run {
+                userSession.updateCurrency(currency)
+                showCurrencySheet = false
+            }
+        } catch {
+            await MainActor.run {
+                currencyError = error.localizedDescription
+                showCurrencyError = true
+            }
+        }
+        isSavingCurrency = false
     }
       
     // MARK: - User Header
@@ -137,10 +193,11 @@ struct SettingView: View {
                 ProfileRow(
                     icon: "coloncurrencysign.circle.fill",
                     title: "Change Currency",
+                    subtitle: userSession.currentUser?.currency ?? "Not set",
                     color: .green,
                     iconBackground: Color.green.opacity(0.15)
                 ) {
-                    // Handle change currency
+                    showCurrencySheet = true
                 }
                 
                 Divider()
@@ -291,10 +348,63 @@ struct SettingView: View {
     }
 }
 
+// MARK: - Currency Picker Sheet
+struct CurrencyPickerSheet: View {
+    let currentCurrency: String?
+    @Binding var isSaving: Bool
+    let onSelect: (String) -> Void
+    let onDismiss: () -> Void
+    @Environment(\.dismiss) var dismiss
+    
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(currencyOptions, id: \.code) { option in
+                    Button {
+                        onSelect(option.code)
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(option.code)
+                                    .font(.system(size: 17, weight: .semibold))
+                                    .foregroundStyle(.primary)
+                                Text(option.name)
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if currentCurrency == option.code {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                            }
+                            if isSaving {
+                                ProgressView()
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .disabled(isSaving)
+                }
+            }
+            .navigationTitle("Preferred Currency")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") {
+                        onDismiss()
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
 // MARK: - Profile Row
 struct ProfileRow: View {
     let icon: String
     let title: String
+    var subtitle: String? = nil
     let color: Color
     var iconBackground: Color = Color.clear
     let action: () -> Void
@@ -313,9 +423,16 @@ struct ProfileRow: View {
                         .foregroundStyle(color)
                 }
                 
-                Text(title)
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(.primary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(.primary)
+                    if let subtitle = subtitle, !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 
                 Spacer()
                 

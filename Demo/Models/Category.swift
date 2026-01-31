@@ -14,9 +14,56 @@ struct Category: Identifiable, Codable {
     let color: String?
     let userID: String
     
-    // Default icon if not provided
+    /// SF Symbol names we allow from FileMaker (valid, category-friendly symbols)
+    private static let allowedSymbols: Set<String> = [
+        "fork.knife", "car.fill", "bag.fill", "doc.text.fill", "tv.fill",
+        "heart.fill", "book.fill", "dollarsign.circle.fill", "ellipsis.circle.fill",
+        "tag.fill", "house.fill", "cart.fill", "creditcard.fill", "gift.fill",
+        "airplane", "bus.fill", "bicycle", "fuelpump.fill", "figure.walk",
+        "cup.and.saucer.fill", "takeoutbag.and.cup.and.straw.fill", "wineglass.fill",
+        "creditcard", "banknote.fill", "chart.pie.fill", "briefcase.fill",
+        "graduationcap.fill", "stethoscope", "pills.fill", "sportscourt.fill",
+        "gamecontroller.fill", "film.fill", "music.note", "paintbrush.fill",
+        "wrench.and.screwdriver.fill", "hammer.fill", "lightbulb.fill",
+        "pawprint.fill", "sparkles", "person.2.fill"
+    ]
+    
+    /// Map keywords in category name to an appropriate SF Symbol
+    private static let nameToIcon: [(keywords: [String], icon: String)] = [
+        (["food", "groceries", "eating", "restaurant", "dining", "meal", "lunch", "dinner", "breakfast", "cafe", "coffee"], "fork.knife"),
+        (["drink", "drinks", "beverage", "bar", "wine", "beer", "coffee", "tea"], "cup.and.saucer.fill"),
+        (["transport", "car", "travel", "uber", "taxi", "fuel", "gas", "petrol", "commute"], "car.fill"),
+        (["bus", "transit"], "bus.fill"),
+        (["flight", "airline", "plane"], "airplane"),
+        (["shopping", "store", "retail", "market", "mall"], "bag.fill"),
+        (["bills", "utilities", "electric", "water", "rent", "mortgage", "insurance"], "doc.text.fill"),
+        (["entertainment", "movie", "cinema", "netflix", "streaming", "game", "gaming"], "tv.fill"),
+        (["health", "medical", "pharmacy", "doctor", "fitness", "gym"], "heart.fill"),
+        (["education", "school", "course", "training", "book"], "book.fill"),
+        (["salary", "income", "pay", "wage", "freelance", "work"], "dollarsign.circle.fill"),
+        (["gift", "donation", "charity"], "gift.fill"),
+        (["home", "housing", "house"], "house.fill"),
+        (["subscription", "membership"], "creditcard.fill"),
+        (["pet", "animal", "vet"], "pawprint.fill"),
+        (["personal", "care", "beauty"], "sparkles"),
+        (["kids", "child", "baby"], "person.2.fill"),
+        (["tax"], "doc.text.fill"),
+        (["other", "misc", "miscellaneous", "general", "uncategorized"], "tag.fill")
+    ]
+    
+    /// Icon to show in the UI. Uses stored icon if valid, else derives from category name so any category gets an appropriate icon.
     var displayIcon: String {
-        icon ?? "ellipsis.circle.fill"
+        let raw = (icon ?? "").trimmingCharacters(in: .whitespaces).lowercased()
+        if !raw.isEmpty && Self.allowedSymbols.contains(raw) {
+            return raw
+        }
+        let nameLower = name.lowercased()
+        for mapping in Self.nameToIcon {
+            if mapping.keywords.contains(where: { nameLower.contains($0) }) {
+                return mapping.icon
+            }
+        }
+        return "tag.fill"
     }
     
     // Default color if not provided

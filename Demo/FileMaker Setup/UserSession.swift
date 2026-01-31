@@ -63,6 +63,48 @@ class UserSession: ObservableObject {
         isLoadingCategories = false
     }
     
+    /// Updates the current user's preferred currency and saves to FileMaker
+    func updateCurrency(_ currency: String) {
+        guard let user = currentUser else { return }
+        let updatedUser = user.withCurrency(currency)
+        self.currentUser = updatedUser
+        saveUserToDefaults(updatedUser)
+        print("✅ Currency updated to: \(currency)")
+    }
+    
+    /// Preferred currency code for the current user (e.g. "USD", "GHS"), or empty when not set
+    var preferredCurrencyCode: String {
+        let c = currentUser?.currency?.trimmingCharacters(in: .whitespaces) ?? ""
+        return c.isEmpty ? "" : c
+    }
+    
+    /// Formats an amount. When currency is set, uses currency formatting; when not set, shows plain number with no currency.
+    static func formatCurrency(amount: Double, currencyCode: String?) -> String {
+        let code = currencyCode?.trimmingCharacters(in: .whitespaces)
+        let hasCurrency = (code ?? "").isEmpty == false
+        
+        let formatter = NumberFormatter()
+        if hasCurrency, let c = code {
+            formatter.numberStyle = .currency
+            formatter.currencyCode = c
+        } else {
+            formatter.numberStyle = .decimal
+        }
+        formatter.maximumFractionDigits = 2
+        formatter.minimumFractionDigits = 0
+        return formatter.string(from: NSNumber(value: amount)) ?? (hasCurrency ? "\(code!) \(amount)" : "\(amount)")
+    }
+    
+    /// Currency symbol for the user's preferred currency (e.g. "$", "¢", "€"). Returns empty string when currency not set.
+    static func currencySymbol(for code: String?) -> String {
+        let c = code?.trimmingCharacters(in: .whitespaces)
+        guard let c = c, !c.isEmpty else { return "" }
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = c
+        return formatter.currencySymbol ?? c
+    }
+    
     func logout() {
         self.currentUser = nil
         self.isLoggedIn = false

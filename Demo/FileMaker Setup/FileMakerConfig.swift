@@ -28,6 +28,7 @@ struct FileMakerConfig {
     static let passwordFieldName = "account_password"
     // Note: For sign up, also uses "FirstName" and "LastName" fields
     // Adjust these field names in FileMakerService.createUser if they differ in your database
+    static let userCurrencyField = "Currency" // Field in test_table_login for preferred currency
     
     // Category Table Configuration
     static let categoryLayoutName = "Category" // Update with your Category layout name
@@ -38,4 +39,15 @@ struct FileMakerConfig {
     static let categoryColorField = "Color" // Field name for color (optional)
     static let categoryIsActiveField = "IsActive" // Field name for active status (optional)
     static let filterByIsActive = true // Set to true if you want to only fetch active categories
+    
+    // Expenses Table Configuration (FileMaker table: Expenses)
+    static let expenseLayoutName = "Expenses" // Layout name for Expenses table
+    static let expenseTableName = "Expenses"
+    static let expenseUserIDField = "UserID"
+    static let expenseDateField = "Date"
+    static let expenseAmountField = "Amount"
+    static let expenseCategoryIDField = "CategoryID"
+    static let expensePaymentMethodField = "PaymentMethod"
+    static let expenseDescriptionField = "Description"
+    static let expenseTypeField = "Type"
 }

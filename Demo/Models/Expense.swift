@@ -8,21 +8,23 @@
 import Foundation
 
 struct Expense: Identifiable, Codable {
-    let id: UUID
+    let id: String  // FileMaker recordId (PrimaryKey) or UUID string for local
     let title: String
     let amount: Double
-    let category: ExpenseCategory
+    let categoryID: String  // FileMaker Category recordId
     let date: Date
     let type: ExpenseType
+    let paymentMethod: String?
     let notes: String?
     
-    init(id: UUID = UUID(), title: String, amount: Double, category: ExpenseCategory, date: Date = Date(), type: ExpenseType, notes: String? = nil) {
+    init(id: String, title: String, amount: Double, categoryID: String, date: Date, type: ExpenseType, paymentMethod: String? = nil, notes: String? = nil) {
         self.id = id
         self.title = title
         self.amount = amount
-        self.category = category
+        self.categoryID = categoryID
         self.date = date
         self.type = type
+        self.paymentMethod = paymentMethod
         self.notes = notes
     }
 }
@@ -32,6 +34,7 @@ enum ExpenseType: String, Codable {
     case expense = "Expense"
 }
 
+// Legacy enum kept for any fallback display when category is not found
 enum ExpenseCategory: String, Codable, CaseIterable {
     case food = "Food"
     case transport = "Transport"
