@@ -172,10 +172,24 @@ class FileMakerService {
         }
     }
     
+    /// Updates the user's Theme field in FileMaker (test_table_login.Theme)
+    func updateUserTheme(userID: String, theme: String) async throws {
+        return try await withSession { token in
+            try await self.performUpdateUserTheme(userID: userID, theme: theme, token: token)
+        }
+    }
+    
     /// Updates the user's preferred currency in FileMaker (test_table_login.Currency)
     func updateUserCurrency(userID: String, currency: String) async throws {
         return try await withSession { token in
             try await self.performUpdateUserCurrency(userID: userID, currency: currency, token: token)
+        }
+    }
+    
+    /// Updates the user's password in FileMaker (test_table_login.account_password)
+    func updateUserPassword(userID: String, newPassword: String) async throws {
+        return try await withSession { token in
+            try await self.performUpdateUserPassword(userID: userID, newPassword: newPassword, token: token)
         }
     }
     
@@ -277,11 +291,14 @@ class FileMakerService {
             let lastName = userData.fieldData.last_name ?? ""
             let userID = userData.recordId // Get the PrimaryKey (recordId)
             let currency = userData.fieldData.Currency?.trimmingCharacters(in: .whitespaces).isEmpty == false ? userData.fieldData.Currency : nil
+            // Theme: "Light Mode" or "Dark Mode"; empty defaults to Light Mode
+            let themeRaw = userData.fieldData.Theme?.trimmingCharacters(in: .whitespaces)
+            let theme: String? = (themeRaw?.isEmpty == false) ? themeRaw : nil
             print("✅ Login successful!")
             print("📋 PrimaryKey (recordId) from test_table_login: '\(userID)'")
             print("📋 PrimaryKey type: \(type(of: userID))")
             print("📋 This PrimaryKey will be used to filter Category table by UserID field")
-            return User(userID: userID, firstName: firstName, lastName: lastName, email: email, currency: currency)
+            return User(userID: userID, firstName: firstName, lastName: lastName, email: email, currency: currency, theme: theme)
         } else {
             try handleErrorResponse(data: data, statusCode: httpResponse.statusCode)
             throw FileMakerError.userNotFound
@@ -553,6 +570,58 @@ class FileMakerService {
         
         if httpResponse.statusCode == 200 {
             print("✅ Currency updated successfully")
+            return
+        }
+        try handleErrorResponse(data: data, statusCode: httpResponse.statusCode)
+        throw FileMakerError.httpError(statusCode: httpResponse.statusCode)
+    }
+    
+    /// Updates the user's Theme field in FileMaker (test_table_login)
+    private func performUpdateUserTheme(userID: String, theme: String, token: String) async throws {
+        let endpoint = "layouts/\(FileMakerConfig.layoutName)/records/\(userID)"
+        let url = try requestBuilder.buildURL(endpoint: endpoint)
+        
+        let fieldData: [String: Any] = [
+            FileMakerConfig.userThemeField: theme
+        ]
+        let body = try requestBuilder.createRecordBody(fieldData: fieldData)
+        let request = requestBuilder.createRequest(url: url, method: "PATCH", body: body, sessionToken: token)
+        
+        print("📝 Updating user theme in FileMaker: \(theme)")
+        let (data, response) = try await performRequest(request: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw FileMakerError.invalidResponse
+        }
+        
+        if httpResponse.statusCode == 200 {
+            print("✅ Theme updated successfully")
+            return
+        }
+        try handleErrorResponse(data: data, statusCode: httpResponse.statusCode)
+        throw FileMakerError.httpError(statusCode: httpResponse.statusCode)
+    }
+    
+    /// Updates the user's password in FileMaker (test_table_login.account_password)
+    private func performUpdateUserPassword(userID: String, newPassword: String, token: String) async throws {
+        let endpoint = "layouts/\(FileMakerConfig.layoutName)/records/\(userID)"
+        let url = try requestBuilder.buildURL(endpoint: endpoint)
+        
+        let fieldData: [String: Any] = [
+            FileMakerConfig.passwordFieldName: newPassword
+        ]
+        let body = try requestBuilder.createRecordBody(fieldData: fieldData)
+        let request = requestBuilder.createRequest(url: url, method: "PATCH", body: body, sessionToken: token)
+        
+        print("📝 Updating user password in FileMaker")
+        let (data, response) = try await performRequest(request: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw FileMakerError.invalidResponse
+        }
+        
+        if httpResponse.statusCode == 200 {
+            print("✅ Password updated successfully")
             return
         }
         try handleErrorResponse(data: data, statusCode: httpResponse.statusCode)

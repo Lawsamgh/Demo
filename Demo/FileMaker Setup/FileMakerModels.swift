@@ -50,6 +50,7 @@ struct FileMakerFindResponse: Codable {
                 let first_name: String?
                 let last_name: String?
                 let Currency: String?
+                let Theme: String?
             }
         }
     }

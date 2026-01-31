@@ -29,6 +29,7 @@ struct FileMakerConfig {
     // Note: For sign up, also uses "FirstName" and "LastName" fields
     // Adjust these field names in FileMakerService.createUser if they differ in your database
     static let userCurrencyField = "Currency" // Field in test_table_login for preferred currency
+    static let userThemeField = "Theme" // Field in test_table_login for theme ("Light Mode" or "Dark Mode")
     
     // Category Table Configuration
     static let categoryLayoutName = "Category" // Update with your Category layout name

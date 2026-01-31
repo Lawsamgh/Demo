@@ -33,6 +33,7 @@ struct LoginView: View {
                 SignUpView(showSignUp: $showSignUp)
             } else {
                 loginContent
+                    .preferredColorScheme(.dark)
             }
         }
     }

@@ -9,9 +9,12 @@ import SwiftUI
 
 @main
 struct DemoApp: App {
+    @StateObject private var userSession = UserSession.shared
+    
     var body: some Scene {
         WindowGroup {
             LoginView()
+                .preferredColorScheme(userSession.isLoggedIn ? userSession.preferredColorScheme : .dark)
         }
     }
 }

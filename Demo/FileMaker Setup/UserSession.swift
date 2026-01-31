@@ -87,6 +87,22 @@ class UserSession: ObservableObject {
         print("✅ Currency updated to: \(currency)")
     }
     
+    /// Updates the current user's theme and saves to FileMaker
+    func updateTheme(_ theme: String) {
+        guard let user = currentUser else { return }
+        let updatedUser = user.withTheme(theme)
+        self.currentUser = updatedUser
+        saveUserToDefaults(updatedUser)
+        print("✅ Theme updated to: \(theme)")
+    }
+    
+    /// Preferred color scheme from user's theme: nil/empty/"Light Mode" → light, "Dark Mode" → dark
+    var preferredColorScheme: ColorScheme? {
+        let t = currentUser?.theme?.trimmingCharacters(in: .whitespaces).lowercased()
+        if t == "dark mode" { return .dark }
+        return .light // "Light Mode" or empty → default to Light Mode
+    }
+    
     /// Preferred currency code for the current user (e.g. "USD", "GHS"), or empty when not set
     var preferredCurrencyCode: String {
         let c = currentUser?.currency?.trimmingCharacters(in: .whitespaces) ?? ""

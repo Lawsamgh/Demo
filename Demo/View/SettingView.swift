@@ -8,6 +8,11 @@
 import SwiftUI
 
 /// Common currencies for selection (code + display name)
+private let themeOptions: [(value: String, name: String)] = [
+    ("Light Mode", "Light Mode"),
+    ("Dark Mode", "Dark Mode"),
+]
+
 private let currencyOptions: [(code: String, name: String)] = [
     ("USD", "US Dollar"),
     ("EUR", "Euro"),
@@ -34,6 +39,13 @@ struct SettingView: View {
     @State private var isSavingCurrency = false
     @State private var currencyError: String?
     @State private var showCurrencyError = false
+    @State private var showThemeSheet = false
+    @State private var isSavingTheme = false
+    @State private var themeError: String?
+    @State private var showThemeError = false
+    @State private var showChangePasswordSheet = false
+    @State private var passwordError: String?
+    @State private var showPasswordError = false
     
     var body: some View {
         NavigationStack {
@@ -94,6 +106,56 @@ struct SettingView: View {
         } message: {
             Text(currencyError ?? "Failed to save currency")
         }
+        .sheet(isPresented: $showThemeSheet) {
+            ThemePickerSheet(
+                currentTheme: userSession.currentUser?.theme ?? "Light Mode",
+                isSaving: $isSavingTheme,
+                onSelect: { theme in Task { await saveTheme(theme) } },
+                onDismiss: { showThemeSheet = false }
+            )
+        }
+        .alert("Theme Error", isPresented: $showThemeError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(themeError ?? "Failed to save theme")
+        }
+        .sheet(isPresented: $showChangePasswordSheet) {
+            if let user = userSession.currentUser {
+                ChangePasswordSheet(
+                    userEmail: user.email,
+                    userID: user.userID,
+                    onSuccess: { showChangePasswordSheet = false },
+                    onError: { message in
+                        passwordError = message
+                        showPasswordError = true
+                    }
+                )
+            }
+        }
+        .alert("Password", isPresented: $showPasswordError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(passwordError ?? "Failed to change password")
+        }
+    }
+    
+    private func saveTheme(_ theme: String) async {
+        guard let user = userSession.currentUser else { return }
+        isSavingTheme = true
+        themeError = nil
+        do {
+            try await FileMakerService.shared.updateUserTheme(userID: user.userID, theme: theme)
+            await MainActor.run {
+                userSession.updateTheme(theme)
+                showThemeSheet = false
+            }
+        } catch {
+            await MainActor.run {
+                themeError = error.localizedDescription
+                showThemeError = true
+            }
+        }
+        isSavingTheme = false
     }
     
     private func saveCurrency(_ currency: String) async {
@@ -184,7 +246,7 @@ struct SettingView: View {
                     color: .orange,
                     iconBackground: Color.orange.opacity(0.15)
                 ) {
-                    // Handle change password
+                    showChangePasswordSheet = true
                 }
                 
                 Divider()
@@ -262,10 +324,11 @@ struct SettingView: View {
                 ProfileRow(
                     icon: "moon.fill",
                     title: "Appearance",
+                    subtitle: (userSession.currentUser?.theme ?? "Light Mode").trimmingCharacters(in: .whitespaces).isEmpty ? "Light Mode" : (userSession.currentUser?.theme ?? "Light Mode"),
                     color: .indigo,
                     iconBackground: Color.indigo.opacity(0.15)
                 ) {
-                    // Handle appearance
+                    showThemeSheet = true
                 }
                 
                 Divider()
@@ -387,6 +450,288 @@ struct CurrencyPickerSheet: View {
                 }
             }
             .navigationTitle("Preferred Currency")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") {
+                        onDismiss()
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Change Password Sheet
+struct ChangePasswordSheet: View {
+    let userEmail: String
+    let userID: String
+    let onSuccess: () -> Void
+    let onError: (String) -> Void
+    @Environment(\.dismiss) var dismiss
+    @Environment(\.colorScheme) var colorScheme
+    
+    @State private var currentPassword = ""
+    @State private var newPassword = ""
+    @State private var confirmPassword = ""
+    @State private var isSaving = false
+    @State private var isCurrentPasswordVisible = false
+    @State private var isNewPasswordVisible = false
+    @State private var isConfirmPasswordVisible = false
+    
+    private var canSave: Bool {
+        !currentPassword.isEmpty &&
+        newPassword.count >= 6 &&
+        newPassword == confirmPassword &&
+        newPassword != currentPassword
+    }
+    
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color(.systemGroupedBackground)
+                    .ignoresSafeArea()
+                
+                ScrollView {
+                    VStack(spacing: 24) {
+                        // Current Password
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Current Password")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            
+                            HStack(spacing: 12) {
+                                Group {
+                                    if isCurrentPasswordVisible {
+                                        TextField("Enter current password", text: $currentPassword)
+                                            .textContentType(.password)
+                                            .autocapitalization(.none)
+                                            .autocorrectionDisabled()
+                                    } else {
+                                        SecureField("Enter current password", text: $currentPassword)
+                                            .textContentType(.password)
+                                            .autocapitalization(.none)
+                                            .autocorrectionDisabled()
+                                    }
+                                }
+                                .font(.system(size: 17))
+                                
+                                Button {
+                                    isCurrentPasswordVisible.toggle()
+                                } label: {
+                                    Image(systemName: isCurrentPasswordVisible ? "eye.slash.fill" : "eye.fill")
+                                        .font(.system(size: 16))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .padding(16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(colorScheme == .dark ? Color(.secondarySystemGroupedBackground) : Color.white)
+                            )
+                        }
+                        
+                        // New Password
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("New Password")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            Text("At least 6 characters")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.tertiary)
+                            
+                            HStack(spacing: 12) {
+                                Group {
+                                    if isNewPasswordVisible {
+                                        TextField("Enter new password", text: $newPassword)
+                                            .textContentType(.newPassword)
+                                            .autocapitalization(.none)
+                                            .autocorrectionDisabled()
+                                    } else {
+                                        SecureField("Enter new password", text: $newPassword)
+                                            .textContentType(.newPassword)
+                                            .autocapitalization(.none)
+                                            .autocorrectionDisabled()
+                                    }
+                                }
+                                .font(.system(size: 17))
+                                
+                                Button {
+                                    isNewPasswordVisible.toggle()
+                                } label: {
+                                    Image(systemName: isNewPasswordVisible ? "eye.slash.fill" : "eye.fill")
+                                        .font(.system(size: 16))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .padding(16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(colorScheme == .dark ? Color(.secondarySystemGroupedBackground) : Color.white)
+                            )
+                        }
+                        
+                        // Confirm New Password
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Confirm New Password")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            
+                            HStack(spacing: 12) {
+                                Group {
+                                    if isConfirmPasswordVisible {
+                                        TextField("Confirm new password", text: $confirmPassword)
+                                            .textContentType(.newPassword)
+                                            .autocapitalization(.none)
+                                            .autocorrectionDisabled()
+                                    } else {
+                                        SecureField("Confirm new password", text: $confirmPassword)
+                                            .textContentType(.newPassword)
+                                            .autocapitalization(.none)
+                                            .autocorrectionDisabled()
+                                    }
+                                }
+                                .font(.system(size: 17))
+                                
+                                Button {
+                                    isConfirmPasswordVisible.toggle()
+                                } label: {
+                                    Image(systemName: isConfirmPasswordVisible ? "eye.slash.fill" : "eye.fill")
+                                        .font(.system(size: 16))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .padding(16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(colorScheme == .dark ? Color(.secondarySystemGroupedBackground) : Color.white)
+                            )
+                            
+                            if !confirmPassword.isEmpty && newPassword != confirmPassword {
+                                Text("Passwords do not match")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.red)
+                            }
+                        }
+                        
+                        // Save Button
+                        Button {
+                            Task { await savePassword() }
+                        } label: {
+                            HStack {
+                                if isSaving {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                } else {
+                                    Text("Change Password")
+                                        .font(.system(size: 17, weight: .semibold))
+                                }
+                            }
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [.blue, .purple],
+                                            startPoint: .leading,
+                                            endPoint: .trailing
+                                        )
+                                    )
+                            )
+                        }
+                        .disabled(!canSave || isSaving)
+                        .opacity(canSave && !isSaving ? 1 : 0.5)
+                        .padding(.top, 8)
+                    }
+                    .padding(20)
+                }
+            }
+            .navigationTitle("Change Password")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+    
+    private func savePassword() async {
+        guard canSave else { return }
+        
+        isSaving = true
+        
+        do {
+            // Verify current password by attempting login
+            _ = try await FileMakerService.shared.loginUser(email: userEmail, password: currentPassword)
+            
+            // Update to new password
+            try await FileMakerService.shared.updateUserPassword(userID: userID, newPassword: newPassword)
+            
+            await MainActor.run {
+                onSuccess()
+                dismiss()
+            }
+        } catch FileMakerError.userNotFound, FileMakerError.invalidCredentials, FileMakerError.authenticationFailed {
+            await MainActor.run {
+                onError("Current password is incorrect")
+            }
+        } catch {
+            await MainActor.run {
+                onError(error.localizedDescription)
+            }
+        }
+        
+        isSaving = false
+    }
+}
+
+// MARK: - Theme Picker Sheet
+struct ThemePickerSheet: View {
+    let currentTheme: String
+    @Binding var isSaving: Bool
+    let onSelect: (String) -> Void
+    let onDismiss: () -> Void
+    @Environment(\.dismiss) var dismiss
+    
+    private var effectiveCurrentTheme: String {
+        let t = currentTheme.trimmingCharacters(in: .whitespaces)
+        return t.isEmpty ? "Light Mode" : t
+    }
+    
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(themeOptions, id: \.value) { option in
+                    Button {
+                        onSelect(option.value)
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(option.name)
+                                    .font(.system(size: 17, weight: .semibold))
+                                    .foregroundStyle(.primary)
+                            }
+                            Spacer()
+                            if effectiveCurrentTheme == option.value {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                            }
+                            if isSaving {
+                                ProgressView()
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .disabled(isSaving)
+                }
+            }
+            .navigationTitle("Appearance")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
