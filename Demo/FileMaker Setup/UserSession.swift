@@ -63,6 +63,21 @@ class UserSession: ObservableObject {
         isLoadingCategories = false
     }
     
+    /// Adds a new category for the current user and refreshes the list
+    func addCategory(name: String) async throws {
+        guard let user = currentUser else {
+            throw FileMakerError.invalidResponse
+        }
+        _ = try await FileMakerService.shared.createCategory(userID: user.userID, name: name)
+        await fetchCategories()
+    }
+    
+    /// Updates an existing category and refreshes the list
+    func updateCategory(recordId: String, name: String) async throws {
+        try await FileMakerService.shared.updateCategory(recordId: recordId, name: name)
+        await fetchCategories()
+    }
+    
     /// Updates the current user's preferred currency and saves to FileMaker
     func updateCurrency(_ currency: String) {
         guard let user = currentUser else { return }

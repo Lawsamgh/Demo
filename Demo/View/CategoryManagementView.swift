@@ -13,6 +13,8 @@ struct CategoryManagementView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var showErrorAlert = false
+    @State private var showAddCategory = false
+    @State private var categoryToEdit: Category?
     
     var body: some View {
         NavigationStack {
@@ -38,15 +40,33 @@ struct CategoryManagementView: View {
                     }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        Task {
-                            await refreshCategories()
+                    HStack(spacing: 16) {
+                        Button {
+                            showAddCategory = true
+                        } label: {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 22))
                         }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 16, weight: .medium))
+                        Button {
+                            Task {
+                                await refreshCategories()
+                            }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 16, weight: .medium))
+                        }
                     }
                 }
+            }
+            .sheet(isPresented: $showAddCategory) {
+                AddCategoryView(onSaved: {
+                    showAddCategory = false
+                })
+            }
+            .sheet(item: $categoryToEdit) { category in
+                EditCategoryView(category: category, onSaved: {
+                    categoryToEdit = nil
+                })
             }
             .alert("Error", isPresented: $showErrorAlert) {
                 Button("OK", role: .cancel) { }
@@ -66,7 +86,12 @@ struct CategoryManagementView: View {
         ScrollView {
             LazyVStack(spacing: 12) {
                 ForEach(userSession.categories) { category in
-                    CategoryRowView(category: category)
+                    Button {
+                        categoryToEdit = category
+                    } label: {
+                        CategoryRowView(category: category)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, 20)
@@ -85,20 +110,18 @@ struct CategoryManagementView: View {
                 .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(.primary)
             
-            Text("Categories will appear here once use add them to the database")
+            Text("Add a category to organize your expenses")
                 .font(.system(size: 15))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
             
             Button {
-                Task {
-                    await refreshCategories()
-                }
+                showAddCategory = true
             } label: {
                 HStack {
-                    Image(systemName: "arrow.clockwise")
-                    Text("Refresh")
+                    Image(systemName: "plus.circle.fill")
+                    Text("Add Category")
                 }
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(.white)
@@ -110,6 +133,18 @@ struct CategoryManagementView: View {
                 )
             }
             .padding(.top, 8)
+            
+            Button {
+                Task { await refreshCategories() }
+            } label: {
+                HStack {
+                    Image(systemName: "arrow.clockwise")
+                    Text("Refresh")
+                }
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(.secondary)
+            }
+            .padding(.top, 4)
         }
     }
     
@@ -126,6 +161,165 @@ struct CategoryManagementView: View {
         }
         
         isLoading = false
+    }
+}
+
+// MARK: - Add Category View
+struct AddCategoryView: View {
+    @StateObject private var userSession = UserSession.shared
+    @Environment(\.dismiss) var dismiss
+    
+    let onSaved: () -> Void
+    
+    @State private var categoryName = ""
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+    @State private var showErrorAlert = false
+    
+    private var canSave: Bool {
+        let name = categoryName.trimmingCharacters(in: .whitespaces)
+        return !name.isEmpty && !isSaving
+    }
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Category name", text: $categoryName)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled(false)
+                } header: {
+                    Text("Name")
+                }
+            }
+            .navigationTitle("New Category")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .disabled(isSaving)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if isSaving {
+                        ProgressView()
+                    } else {
+                        Button("Save") {
+                            Task { await saveCategory() }
+                        }
+                        .disabled(!canSave)
+                    }
+                }
+            }
+            .alert("Error", isPresented: $showErrorAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(errorMessage ?? "Something went wrong")
+            }
+        }
+    }
+    
+    private func saveCategory() async {
+        let name = categoryName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        
+        isSaving = true
+        errorMessage = nil
+        
+        do {
+            try await userSession.addCategory(name: name)
+            onSaved()
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+            showErrorAlert = true
+        }
+        
+        isSaving = false
+    }
+}
+
+// MARK: - Edit Category View
+struct EditCategoryView: View {
+    @StateObject private var userSession = UserSession.shared
+    @Environment(\.dismiss) var dismiss
+    
+    let category: Category
+    let onSaved: () -> Void
+    
+    @State private var categoryName: String
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+    @State private var showErrorAlert = false
+    
+    init(category: Category, onSaved: @escaping () -> Void) {
+        self.category = category
+        self.onSaved = onSaved
+        _categoryName = State(initialValue: category.name)
+    }
+    
+    private var canSave: Bool {
+        let name = categoryName.trimmingCharacters(in: .whitespaces)
+        return !name.isEmpty && !isSaving
+    }
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Category name", text: $categoryName)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled(false)
+                } header: {
+                    Text("Name")
+                }
+            }
+            .navigationTitle("Edit Category")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .disabled(isSaving)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if isSaving {
+                        ProgressView()
+                    } else {
+                        Button("Save") {
+                            Task { await saveCategory() }
+                        }
+                        .disabled(!canSave)
+                    }
+                }
+            }
+            .alert("Error", isPresented: $showErrorAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(errorMessage ?? "Something went wrong")
+            }
+        }
+    }
+    
+    private func saveCategory() async {
+        let name = categoryName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        
+        isSaving = true
+        errorMessage = nil
+        
+        do {
+            try await userSession.updateCategory(recordId: category.id, name: name)
+            onSaved()
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+            showErrorAlert = true
+        }
+        
+        isSaving = false
     }
 }
 

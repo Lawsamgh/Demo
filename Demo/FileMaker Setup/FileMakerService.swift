@@ -122,6 +122,20 @@ class FileMakerService {
         }
     }
     
+    /// Creates a new category in FileMaker for the given user
+    func createCategory(userID: String, name: String) async throws -> String {
+        return try await withSession { token in
+            try await self.performCreateCategory(userID: userID, name: name, token: token)
+        }
+    }
+    
+    /// Updates an existing category in FileMaker (name only)
+    func updateCategory(recordId: String, name: String) async throws {
+        return try await withSession { token in
+            try await self.performUpdateCategory(recordId: recordId, name: name, token: token)
+        }
+    }
+    
     /// Checks if an email already exists in the database
     func emailExists(_ email: String) async throws -> Bool {
         return try await withSession { token in
@@ -272,6 +286,70 @@ class FileMakerService {
             try handleErrorResponse(data: data, statusCode: httpResponse.statusCode)
             throw FileMakerError.userNotFound
         }
+    }
+    
+    /// Creates a category record in FileMaker
+    private func performCreateCategory(userID: String, name: String, token: String) async throws -> String {
+        let endpoint = "layouts/\(FileMakerConfig.categoryLayoutName)/records"
+        let url = try requestBuilder.buildURL(endpoint: endpoint)
+        
+        let fieldData: [String: Any] = [
+            FileMakerConfig.categoryUserIDField: userID,
+            FileMakerConfig.categoryNameField: name,
+            FileMakerConfig.categoryIsActiveField: "1"
+        ]
+        
+        let body = try requestBuilder.createRecordBody(fieldData: fieldData)
+        let request = requestBuilder.createRequest(url: url, method: "POST", body: body, sessionToken: token)
+        
+        if let bodyJson = String(data: body, encoding: .utf8) {
+            print("📝 Create category request fieldData: \(bodyJson)")
+        }
+        print("📝 Creating category in FileMaker: \(name)")
+        let (data, response) = try await performRequest(request: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw FileMakerError.invalidResponse
+        }
+        
+        if httpResponse.statusCode == 200 || httpResponse.statusCode == 201 {
+            let createResponse = try JSONDecoder().decode(FileMakerCreateResponse.self, from: data)
+            if let recordId = createResponse.response?.recordId {
+                print("✅ Category created: \(recordId)")
+                return recordId
+            }
+            if let firstMessage = createResponse.messages.first, firstMessage.code != "0" {
+                throw FileMakerError.apiError(code: firstMessage.code, message: firstMessage.message)
+            }
+        }
+        try handleErrorResponse(data: data, statusCode: httpResponse.statusCode)
+        throw FileMakerError.invalidResponse
+    }
+    
+    /// Updates a category record in FileMaker (PATCH by recordId)
+    private func performUpdateCategory(recordId: String, name: String, token: String) async throws {
+        let endpoint = "layouts/\(FileMakerConfig.categoryLayoutName)/records/\(recordId)"
+        let url = try requestBuilder.buildURL(endpoint: endpoint)
+        
+        let fieldData: [String: Any] = [
+            FileMakerConfig.categoryNameField: name
+        ]
+        let body = try requestBuilder.createRecordBody(fieldData: fieldData)
+        let request = requestBuilder.createRequest(url: url, method: "PATCH", body: body, sessionToken: token)
+        
+        print("📝 Updating category in FileMaker: \(recordId) -> \(name)")
+        let (data, response) = try await performRequest(request: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw FileMakerError.invalidResponse
+        }
+        
+        if httpResponse.statusCode == 200 {
+            print("✅ Category updated successfully")
+            return
+        }
+        try handleErrorResponse(data: data, statusCode: httpResponse.statusCode)
+        throw FileMakerError.httpError(statusCode: httpResponse.statusCode)
     }
     
     /// Fetches categories from FileMaker for a specific user
@@ -570,6 +648,17 @@ class FileMakerService {
             dateFormatter.dateFormat = "yyyy-MM-dd"
             let dateFormatterAlt = DateFormatter()
             dateFormatterAlt.dateFormat = "MM/dd/yyyy"
+            let timestampFormatters: [DateFormatter] = {
+                let iso = ISO8601DateFormatter()
+                iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                let f1 = DateFormatter()
+                f1.dateFormat = "yyyy-MM-dd HH:mm:ss"
+                let f2 = DateFormatter()
+                f2.dateFormat = "MM/dd/yyyy HH:mm:ss"
+                let f3 = DateFormatter()
+                f3.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+                return [f1, f2, f3]
+            }()
             
             let expenses = records.compactMap { record -> Expense? in
                 let amountStr = record.fieldData.Amount
@@ -584,6 +673,19 @@ class FileMakerService {
                         ?? date
                 }
                 
+                var creationTimestamp: Date? = nil
+                if let tsStr = record.fieldData.CreationTimestamp, !tsStr.isEmpty {
+                    creationTimestamp = ISO8601DateFormatter().date(from: tsStr)
+                    if creationTimestamp == nil {
+                        for f in timestampFormatters {
+                            if let parsed = f.date(from: tsStr) {
+                                creationTimestamp = parsed
+                                break
+                            }
+                        }
+                    }
+                }
+                
                 return Expense(
                     id: record.recordId,
                     title: record.fieldData.Description ?? "",
@@ -592,7 +694,8 @@ class FileMakerService {
                     date: date,
                     type: type,
                     paymentMethod: record.fieldData.PaymentMethod,
-                    notes: nil
+                    notes: nil,
+                    creationTimestamp: creationTimestamp
                 )
             }
             

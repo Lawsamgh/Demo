@@ -16,8 +16,10 @@ struct Expense: Identifiable, Codable {
     let type: ExpenseType
     let paymentMethod: String?
     let notes: String?
+    /// FileMaker CreationTimestamp; used to sort "recent" (newest first). Falls back to date when nil.
+    let creationTimestamp: Date?
     
-    init(id: String, title: String, amount: Double, categoryID: String, date: Date, type: ExpenseType, paymentMethod: String? = nil, notes: String? = nil) {
+    init(id: String, title: String, amount: Double, categoryID: String, date: Date, type: ExpenseType, paymentMethod: String? = nil, notes: String? = nil, creationTimestamp: Date? = nil) {
         self.id = id
         self.title = title
         self.amount = amount
@@ -26,6 +28,12 @@ struct Expense: Identifiable, Codable {
         self.type = type
         self.paymentMethod = paymentMethod
         self.notes = notes
+        self.creationTimestamp = creationTimestamp
+    }
+    
+    /// Sort key for "recent" order: newest first. Uses CreationTimestamp when available, else date.
+    var sortDateForRecency: Date {
+        creationTimestamp ?? date
     }
 }
 

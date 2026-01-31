@@ -57,6 +57,11 @@ struct Category: Identifiable, Codable {
         if !raw.isEmpty && Self.allowedSymbols.contains(raw) {
             return raw
         }
+        return Self.iconForName(name)
+    }
+    
+    /// Returns an SF Symbol for a given name (e.g. "Salary" → "dollarsign.circle.fill"). Used when category is missing so Recent Transactions still show the right icon.
+    static func iconForName(_ name: String) -> String {
         let nameLower = name.lowercased()
         for mapping in Self.nameToIcon {
             if mapping.keywords.contains(where: { nameLower.contains($0) }) {

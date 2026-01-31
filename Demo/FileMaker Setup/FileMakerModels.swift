@@ -121,10 +121,12 @@ struct FileMakerExpenseFindResponse: Codable {
             let PaymentMethod: String?
             let Description: String?
             let transactionType: String?
+            let CreationTimestamp: String?
             
             enum CodingKeys: String, CodingKey {
                 case UserID, Date, Amount, CategoryID, PaymentMethod, Description
                 case transactionType = "Type"
+                case CreationTimestamp
             }
             
             init(from decoder: Decoder) throws {
@@ -139,10 +141,18 @@ struct FileMakerExpenseFindResponse: Codable {
                 } else {
                     Amount = try c.decodeIfPresent(String.self, forKey: .Amount)
                 }
-                CategoryID = try c.decodeIfPresent(String.self, forKey: .CategoryID)
+                // FileMaker may return CategoryID as number or string (must match Category recordId)
+                if let s = try? c.decode(String.self, forKey: .CategoryID) {
+                    CategoryID = s
+                } else if let i = try? c.decode(Int.self, forKey: .CategoryID) {
+                    CategoryID = String(i)
+                } else {
+                    CategoryID = try c.decodeIfPresent(String.self, forKey: .CategoryID)
+                }
                 PaymentMethod = try c.decodeIfPresent(String.self, forKey: .PaymentMethod)
                 Description = try c.decodeIfPresent(String.self, forKey: .Description)
                 transactionType = try c.decodeIfPresent(String.self, forKey: .transactionType)
+                CreationTimestamp = try c.decodeIfPresent(String.self, forKey: .CreationTimestamp)
             }
         }
     }

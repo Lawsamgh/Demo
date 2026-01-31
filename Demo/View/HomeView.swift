@@ -19,6 +19,11 @@ struct HomeView: View {
     @State private var isSavingCurrency = false
     @State private var currencyError: String?
     @State private var showCurrencyError = false
+    @State private var showAllTransactions = false
+    /// Selected year for Month/Year view (e.g. 2025 for "last year")
+    @State private var selectedYear: Int = Calendar.current.component(.year, from: Date())
+    /// Selected month (1...12) for Month view
+    @State private var selectedMonth: Int = Calendar.current.component(.month, from: Date())
     
     private var isCurrencyNotSet: Bool {
         let c = userSession.currentUser?.currency ?? ""
@@ -31,52 +36,181 @@ struct HomeView: View {
         case year = "Year"
     }
     
-    // Resolve category by ID from FileMaker categories
+    /// Resolve category by ID from FileMaker categories. Normalizes IDs so "5" matches "5" (FileMaker may return number or string).
     private func category(for categoryID: String) -> Category? {
-        userSession.categories.first { $0.id == categoryID }
+        let normalized = categoryID.trimmingCharacters(in: .whitespaces)
+        guard !normalized.isEmpty else { return nil }
+        return userSession.categories.first { $0.id.trimmingCharacters(in: .whitespaces) == normalized }
     }
     
-    // Computed properties
+    // MARK: - Period date range (used for filtering; Month/Year use selectedYear/selectedMonth)
+    private var periodStart: Date {
+        let calendar = Calendar.current
+        let now = Date()
+        let startOfToday = calendar.startOfDay(for: now)
+        switch selectedPeriod {
+        case .week:
+            return calendar.date(byAdding: .day, value: -6, to: startOfToday) ?? startOfToday
+        case .month:
+            guard let monthStart = calendar.date(from: DateComponents(year: selectedYear, month: selectedMonth, day: 1)) else { return startOfToday }
+            return monthStart
+        case .year:
+            return calendar.date(from: DateComponents(year: selectedYear, month: 1, day: 1)) ?? startOfToday
+        }
+    }
+    
+    private var periodEnd: Date {
+        let calendar = Calendar.current
+        let now = Date()
+        let startOfToday = calendar.startOfDay(for: now)
+        switch selectedPeriod {
+        case .week:
+            return calendar.date(byAdding: .day, value: 1, to: startOfToday)?.addingTimeInterval(-1) ?? now
+        case .month:
+            guard let monthStart = calendar.date(from: DateComponents(year: selectedYear, month: selectedMonth, day: 1)),
+                  let nextMonth = calendar.date(byAdding: .month, value: 1, to: monthStart),
+                  let lastDayOfMonth = calendar.date(byAdding: .day, value: -1, to: nextMonth) else { return now }
+            return calendar.date(bySettingHour: 23, minute: 59, second: 59, of: lastDayOfMonth) ?? now
+        case .year:
+            guard let endOfYear = calendar.date(from: DateComponents(year: selectedYear, month: 12, day: 31)) else { return now }
+            return calendar.date(bySettingHour: 23, minute: 59, second: 59, of: endOfYear) ?? now
+        }
+    }
+    
+    /// Expenses within the selected period (Week / Month / Year)
+    private var filteredExpenses: [Expense] {
+        expenses.filter { $0.date >= periodStart && $0.date <= periodEnd }
+    }
+    
+    // Computed properties (all use filteredExpenses for selected period)
     private var totalIncome: Double {
-        expenses.filter { $0.type == .income }.reduce(0) { $0 + $1.amount }
+        filteredExpenses.filter { $0.type == .income }.reduce(0) { $0 + $1.amount }
     }
     
     private var totalExpenses: Double {
-        expenses.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount }
+        filteredExpenses.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount }
     }
     
     private var balance: Double {
         totalIncome - totalExpenses
     }
     
+    /// Recent 5 transactions in the selected period, sorted by CreationTimestamp (newest first); use "See All" for the full list.
     private var recentTransactions: [Expense] {
-        expenses.sorted { $0.date > $1.date }.prefix(6).map { $0 }
+        filteredExpenses.sorted { $0.sortDateForRecency > $1.sortDateForRecency }.prefix(5).map { $0 }
+    }
+    
+    /// All transactions in the selected period (for "See All" list), sorted by CreationTimestamp (newest first).
+    private var allTransactions: [Expense] {
+        filteredExpenses.sorted { $0.sortDateForRecency > $1.sortDateForRecency }
     }
     
     private var categoryBreakdown: [(category: Category, amount: Double)] {
-        let grouped = Dictionary(grouping: expenses.filter { $0.type == .expense }) { $0.categoryID }
+        let grouped = Dictionary(grouping: filteredExpenses.filter { $0.type == .expense }) { $0.categoryID }
         return grouped.compactMap { categoryID, expList -> (Category, Double)? in
             guard let cat = category(for: categoryID) else { return nil }
             return (cat, expList.reduce(0) { $0 + $1.amount })
         }.sorted { $0.1 > $1.1 }
     }
     
-    /// Spending Trend: last 7 days from Expenses table (fields Date, Amount, Type).
-    /// Uses fetched `expenses` (FileMaker Expenses layout). One entry per day; day 0 = oldest, day 6 = today.
-    /// Only records with Type == expense are summed per day.
-    private var last7DaysSpending: [(dayLabel: String, amount: Double)] {
+    /// Spending trend data for the chart: varies by selected period (7 days / 4 weeks / 12 months)
+    private var spendingChartData: [(dayLabel: String, amount: Double)] {
         let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
         let formatter = DateFormatter()
-        formatter.dateFormat = "EEE" // Mon, Tue, ...
-        return (0..<7).map { offset in
-            guard let day = calendar.date(byAdding: .day, value: -6 + offset, to: today) else {
-                return (formatter.string(from: today), 0.0)
+        switch selectedPeriod {
+        case .week:
+            formatter.dateFormat = "EEE"
+            let today = calendar.startOfDay(for: Date())
+            return (0..<7).map { offset in
+                guard let day = calendar.date(byAdding: .day, value: -6 + offset, to: today) else {
+                    return (formatter.string(from: today), 0.0)
+                }
+                let dayTotal = filteredExpenses
+                    .filter { $0.type == .expense && calendar.isDate($0.date, inSameDayAs: day) }
+                    .reduce(0.0) { $0 + $1.amount }
+                return (formatter.string(from: day), dayTotal)
             }
-            let dayTotal = expenses
-                .filter { $0.type == .expense && calendar.isDate($0.date, inSameDayAs: day) }
-                .reduce(0.0) { $0 + $1.amount }
-            return (formatter.string(from: day), dayTotal)
+        case .month:
+            guard let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: Date())),
+                  let nextMonth = calendar.date(byAdding: .month, value: 1, to: monthStart),
+                  let lastDay = calendar.date(byAdding: .day, value: -1, to: nextMonth) else {
+                return []
+            }
+            let dayCount = calendar.dateComponents([.day], from: monthStart, to: lastDay).day ?? 28
+            let weekCount = 4
+            let daysPerWeek = max(1, (dayCount + weekCount - 1) / weekCount)
+            return (0..<weekCount).map { weekIndex in
+                let weekStart = calendar.date(byAdding: .day, value: weekIndex * daysPerWeek, to: monthStart)!
+                let rawWeekEnd = calendar.date(byAdding: .day, value: daysPerWeek - 1, to: weekStart)!
+                let weekEndDate = rawWeekEnd > lastDay ? lastDay : rawWeekEnd
+                let weekEnd = calendar.date(bySettingHour: 23, minute: 59, second: 59, of: weekEndDate) ?? weekEndDate
+                let weekTotal = filteredExpenses
+                    .filter { $0.type == .expense && $0.date >= weekStart && $0.date <= weekEnd }
+                    .reduce(0.0) { $0 + $1.amount }
+                return ("W\(weekIndex + 1)", weekTotal)
+            }
+        case .year:
+            formatter.dateFormat = "MMM"
+            let year = calendar.component(.year, from: Date())
+            return (1...12).map { month in
+                guard let monthStart = calendar.date(from: DateComponents(year: year, month: month, day: 1)),
+                      let monthEnd = calendar.date(byAdding: .day, value: -1, to: calendar.date(byAdding: .month, value: 1, to: monthStart)!) else {
+                    return ("", 0.0)
+                }
+                let endOfMonth = calendar.date(bySetting: .hour, value: 23, of: calendar.date(bySetting: .minute, value: 59, of: monthEnd)!)!
+                let monthTotal = filteredExpenses
+                    .filter { $0.type == .expense && $0.date >= monthStart && $0.date <= endOfMonth }
+                    .reduce(0.0) { $0 + $1.amount }
+                return (formatter.string(from: monthStart), monthTotal)
+            }
+        }
+    }
+    
+    /// Subtitle for the spending chart (e.g. "Last 7 days", "This month", "This year")
+    private var spendingChartSubtitle: String {
+        switch selectedPeriod {
+        case .week: return "Last 7 days"
+        case .month: return "This month"
+        case .year: return "This year"
+        }
+    }
+    
+    /// Index of the bar to select by default: today (Week), current week (Month), current month (Year)
+    private var spendingChartInitialSelectedIndex: Int {
+        let calendar = Calendar.current
+        let now = Date()
+        switch selectedPeriod {
+        case .week:
+            return 6 // Today is the 7th day (index 6)
+        case .month:
+            let dayOfMonth = calendar.component(.day, from: now)
+            return min(3, (dayOfMonth - 1) / 7) // W1=0, W2=1, W3=2, W4=3
+        case .year:
+            return calendar.component(.month, from: now) - 1 // Jan=0 .. Dec=11
+        }
+    }
+    
+    /// Actual number of days in the selected period (for accurate daily average calculation)
+    private var daysInPeriod: Int {
+        let calendar = Calendar.current
+        switch selectedPeriod {
+        case .week:
+            return 7
+        case .month:
+            // Number of days in the selected month
+            guard let monthStart = calendar.date(from: DateComponents(year: selectedYear, month: selectedMonth, day: 1)),
+                  let nextMonth = calendar.date(byAdding: .month, value: 1, to: monthStart),
+                  let lastDay = calendar.date(byAdding: .day, value: -1, to: nextMonth) else {
+                return 30 // fallback
+            }
+            return calendar.component(.day, from: lastDay)
+        case .year:
+            // Number of days in the selected year (365 or 366 for leap year)
+            guard let yearStart = calendar.date(from: DateComponents(year: selectedYear, month: 1, day: 1)),
+                  let nextYear = calendar.date(byAdding: .year, value: 1, to: yearStart) else {
+                return 365 // fallback
+            }
+            return calendar.dateComponents([.day], from: yearStart, to: nextYear).day ?? 365
         }
     }
     
@@ -333,14 +467,20 @@ struct HomeView: View {
                 
                 Spacer()
                 
-                // Current Month and Year
+                // Period label (selected month/year or "Last 7 days")
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(currentMonth)
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(.primary)
-                    Text(currentYear)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.secondary)
+                    if selectedPeriod == .week {
+                        Text("Last 7 days")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.primary)
+                    } else {
+                        Text(periodHeaderMonth)
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(.primary)
+                        Text(periodHeaderYear)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             .padding(.horizontal, 20)
@@ -351,6 +491,10 @@ struct HomeView: View {
                     Button {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                             selectedPeriod = period
+                            let now = Date()
+                            let cal = Calendar.current
+                            selectedYear = cal.component(.year, from: now)
+                            selectedMonth = cal.component(.month, from: now)
                         }
                     } label: {
                         Text(period.rawValue)
@@ -388,6 +532,54 @@ struct HomeView: View {
             )
             .padding(.horizontal, 20)
             
+            // Period navigation: < Month Year > or < Year > (for Month/Year view)
+            if selectedPeriod == .month || selectedPeriod == .year {
+                HStack {
+                    Button {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            if selectedPeriod == .month {
+                                selectedMonth -= 1
+                                if selectedMonth < 1 {
+                                    selectedMonth = 12
+                                    selectedYear -= 1
+                                }
+                            } else {
+                                selectedYear -= 1
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.blue)
+                            .frame(width: 44, height: 36)
+                    }
+                    Spacer()
+                    Text(selectedPeriod == .month ? periodMonthYearLabel : "\(selectedYear)")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Button {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            if selectedPeriod == .month {
+                                selectedMonth += 1
+                                if selectedMonth > 12 {
+                                    selectedMonth = 1
+                                    selectedYear += 1
+                                }
+                            } else {
+                                selectedYear += 1
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.blue)
+                            .frame(width: 44, height: 36)
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+            
             // Balance Section
             VStack(alignment: .leading, spacing: 8) {
                 Text("Total Balance")
@@ -408,17 +600,21 @@ struct HomeView: View {
         }
     }
     
-    // Current month and year computed properties
-    private var currentMonth: String {
+    /// Header label: month name for selected period (Month view) or current (Week)
+    private var periodHeaderMonth: String {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMMM"
-        return formatter.string(from: Date())
+        guard let d = Calendar.current.date(from: DateComponents(year: selectedYear, month: selectedMonth, day: 1)) else { return formatter.string(from: Date()) }
+        return formatter.string(from: d)
     }
     
-    private var currentYear: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy"
-        return formatter.string(from: Date())
+    private var periodHeaderYear: String {
+        "\(selectedYear)"
+    }
+    
+    /// Label for period nav row: "November 2025" for Month
+    private var periodMonthYearLabel: String {
+        "\(periodHeaderMonth) \(selectedYear)"
     }
     
     @Namespace private var namespace
@@ -506,7 +702,7 @@ struct HomeView: View {
         }
     }
     
-    // MARK: - Spending Preview (data from Expenses: Date, Amount, Type)
+    // MARK: - Spending Preview (data from Expenses: Date, Amount, Type; filtered by selected period)
     private var spendingPreview: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
@@ -516,13 +712,13 @@ struct HomeView: View {
                 
                 Spacer()
                 
-                Text("Last 7 days")
-                    .font(.system(size: 13, weight: .medium))
+                Text(spendingChartSubtitle)
+                    .font(.system(size: 13, weight: .regular))
                     .foregroundStyle(.secondary)
             }
             
-            // Animated Bar Chart
-            SpendingChartView(dailyData: last7DaysSpending, currencyCode: userSession.currentUser?.currency)
+            // Animated Bar Chart (7 days / 4 weeks / 12 months by period)
+            SpendingChartView(dailyData: spendingChartData, currencyCode: userSession.currentUser?.currency, initialSelectedIndex: spendingChartInitialSelectedIndex, daysInPeriod: daysInPeriod)
         }
     }
     
@@ -537,7 +733,7 @@ struct HomeView: View {
                 Spacer()
                 
                 Button {
-                    // View all
+                    showAllTransactions = true
                 } label: {
                     HStack(spacing: 4) {
                         Text("See All")
@@ -555,6 +751,15 @@ struct HomeView: View {
                 }
             }
         }
+        .sheet(isPresented: $showAllTransactions) {
+            AllTransactionsView(
+                userSession: userSession,
+                transactions: allTransactions,
+                currencyCode: userSession.currentUser?.currency
+            )
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
     }
     
     // MARK: - Helper Functions
@@ -565,13 +770,17 @@ struct HomeView: View {
     }
 }
 
-// MARK: - Spending Chart View (fed by Expenses table: Date, Amount, Type via last7DaysSpending)
+// MARK: - Spending Chart View (fed by spendingChartData: 7 days / 4 weeks / 12 months by period)
 struct SpendingChartView: View {
     /// dailyData: last 7 days (dayLabel, amount) from Expenses table—Date, Amount, Type (expense only)
     let dailyData: [(dayLabel: String, amount: Double)]
     let currencyCode: String?
+    /// Index to select when period changes: today (week), current week (month), current month (year)
+    let initialSelectedIndex: Int
+    /// Number of actual days in the period (7 for week, ~30 for month, ~365 for year)
+    let daysInPeriod: Int
     @State private var animateChart = false
-    @State private var selectedBar: Int = 6
+    @State private var selectedBar: Int = 0
     @Environment(\.colorScheme) var colorScheme
     
     private static let maxBarHeight: CGFloat = 130
@@ -590,9 +799,11 @@ struct SpendingChartView: View {
         return amounts.map { _ in Self.minBarHeight }
     }
     
+    /// Daily average: total spending divided by actual number of days in the period
     private var dailyAverage: Double {
         let total = amounts.reduce(0, +)
-        return amounts.isEmpty ? 0 : total / Double(amounts.count)
+        let days = max(1, daysInPeriod)
+        return total / Double(days)
     }
     
     private var safeSelectedIndex: Int {
@@ -684,7 +895,7 @@ struct SpendingChartView: View {
                             .foregroundStyle(.blue)
                     }
                     Text(UserSession.formatCurrency(amount: safeSelectedIndex < amounts.count ? amounts[safeSelectedIndex] : 0, currencyCode: currencyCode))
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .font(.system(size: 12, weight: .regular))
                         .foregroundStyle(.primary)
                         .contentTransition(.numericText())
                 }
@@ -711,7 +922,7 @@ struct SpendingChartView: View {
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.secondary)
                     Text(UserSession.formatCurrency(amount: dailyAverage, currencyCode: currencyCode))
-                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .font(.system(size: 12, weight: .regular))
                         .foregroundStyle(.primary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -723,7 +934,8 @@ struct SpendingChartView: View {
             }
         }
         .onAppear {
-            selectedBar = dayLabels.count > 0 ? dayLabels.count - 1 : 0
+            let count = dayLabels.count
+            selectedBar = count > 0 ? min(initialSelectedIndex, count - 1) : 0
             withAnimation(.spring(response: 0.8, dampingFraction: 0.7).delay(0.1)) {
                 animateChart = true
             }
@@ -734,8 +946,18 @@ struct SpendingChartView: View {
             }
         }
         .onChange(of: dailyData.count) { _, newCount in
-            if newCount > 0, selectedBar >= newCount {
-                selectedBar = newCount - 1
+            if newCount > 0 {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                    selectedBar = min(initialSelectedIndex, newCount - 1)
+                }
+            }
+        }
+        .onChange(of: initialSelectedIndex) { _, newIndex in
+            let count = dayLabels.count
+            if count > 0 {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                    selectedBar = min(newIndex, count - 1)
+                }
             }
         }
     }
@@ -800,15 +1022,26 @@ struct TransactionCard: View {
     let category: Category?
     let currencyCode: String?
     
+    /// Category circle/icon color — same logic as Settings → Categories (CategoryRowView)
+    private var categoryColor: Color {
+        colorFromString(category?.displayColor ?? "gray")
+    }
+    
+    /// In dark mode: expense amount is red, income stays green; in light mode expense is primary
+    private var amountColor: Color {
+        if expense.type == .income { return .green }
+        return colorScheme == .dark ? .red : .primary
+    }
+    
     var body: some View {
         HStack(spacing: 14) {
             Circle()
-                .fill(Color(category?.displayColor ?? "gray").opacity(0.15))
+                .fill(categoryColor.opacity(0.15))
                 .frame(width: 46, height: 46)
                 .overlay(
-                    Image(systemName: category?.displayIcon ?? "ellipsis.circle.fill")
+                    Image(systemName: category?.displayIcon ?? Category.iconForName(expense.title))
                         .font(.system(size: 20, weight: .medium))
-                        .foregroundStyle(colorScheme == .dark ? Color(category?.displayColor ?? "gray") : .black)
+                        .foregroundStyle(colorScheme == .dark ? categoryColor : .black)
                 )
             
             VStack(alignment: .leading, spacing: 4) {
@@ -825,7 +1058,7 @@ struct TransactionCard: View {
             
             Text((expense.type == .income ? "+" : "-") + UserSession.formatCurrency(amount: expense.amount, currencyCode: currencyCode))
                 .font(.system(size: 16, weight: .bold, design: .rounded))
-                .foregroundStyle(expense.type == .income ? .green : .primary)
+                .foregroundStyle(amountColor)
         }
         .padding(14)
         .background(
@@ -845,6 +1078,81 @@ struct TransactionCard: View {
         } else {
             formatter.dateFormat = "MMM d"
             return formatter.string(from: date)
+        }
+    }
+    
+    /// Maps category color name to SwiftUI Color — same as Settings → Categories (CategoryRowView)
+    private func colorFromString(_ colorName: String) -> Color {
+        switch colorName.lowercased() {
+        case "red": return .red
+        case "blue": return .blue
+        case "green": return .green
+        case "orange": return .orange
+        case "purple": return .purple
+        case "pink": return .pink
+        case "yellow": return .yellow
+        case "indigo": return .indigo
+        case "teal": return .teal
+        case "cyan": return .cyan
+        case "mint": return .mint
+        default: return .gray
+        }
+    }
+}
+
+// MARK: - All Transactions View (full list when "See All" is tapped)
+struct AllTransactionsView: View {
+    @ObservedObject var userSession: UserSession
+    @Environment(\.dismiss) var dismiss
+    let transactions: [Expense]
+    let currencyCode: String?
+    
+    private func category(for categoryID: String) -> Category? {
+        let normalized = categoryID.trimmingCharacters(in: .whitespaces)
+        guard !normalized.isEmpty else { return nil }
+        return userSession.categories.first { $0.id.trimmingCharacters(in: .whitespaces) == normalized }
+    }
+    
+    var body: some View {
+        NavigationStack {
+            Group {
+                if transactions.isEmpty {
+                    VStack(spacing: 16) {
+                        Image(systemName: "tray")
+                            .font(.system(size: 50))
+                            .foregroundStyle(.secondary)
+                        Text("No transactions in this period")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView(showsIndicators: true) {
+                        LazyVStack(spacing: 12) {
+                            ForEach(transactions) { expense in
+                                TransactionCard(
+                                    expense: expense,
+                                    category: category(for: expense.categoryID),
+                                    currencyCode: currencyCode
+                                )
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 16)
+                        .padding(.bottom, 40)
+                    }
+                }
+            }
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("All Transactions")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
         }
     }
 }
