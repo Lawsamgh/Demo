@@ -51,6 +51,48 @@ struct FileMakerFindResponse: Codable {
                 let last_name: String?
                 let Currency: String?
                 let Theme: String?
+                let ExpenseLimitType: String?
+                let ExpenseLimitValue: Double?
+                let ExpenseLimitPeriod: String?
+                
+                init(from decoder: Decoder) throws {
+                    let c = try decoder.container(keyedBy: CodingKeys.self)
+                    EmailAddress = try c.decodeIfPresent(String.self, forKey: .EmailAddress)
+                    account_password = try c.decodeIfPresent(String.self, forKey: .account_password)
+                    first_name = try c.decodeIfPresent(String.self, forKey: .first_name)
+                    last_name = try c.decodeIfPresent(String.self, forKey: .last_name)
+                    Currency = try c.decodeIfPresent(String.self, forKey: .Currency)
+                    Theme = try c.decodeIfPresent(String.self, forKey: .Theme)
+                    ExpenseLimitType = try c.decodeIfPresent(String.self, forKey: .ExpenseLimitType)
+                    ExpenseLimitPeriod = try c.decodeIfPresent(String.self, forKey: .ExpenseLimitPeriod)
+                    if let d = try? c.decode(Double.self, forKey: .ExpenseLimitValue) {
+                        ExpenseLimitValue = d
+                    } else if let i = try? c.decode(Int.self, forKey: .ExpenseLimitValue) {
+                        ExpenseLimitValue = Double(i)
+                    } else if let s = try? c.decode(String.self, forKey: .ExpenseLimitValue), let parsed = Double(s) {
+                        ExpenseLimitValue = parsed
+                    } else {
+                        ExpenseLimitValue = nil
+                    }
+                }
+                
+                func encode(to encoder: Encoder) throws {
+                    var c = encoder.container(keyedBy: CodingKeys.self)
+                    try c.encodeIfPresent(EmailAddress, forKey: .EmailAddress)
+                    try c.encodeIfPresent(account_password, forKey: .account_password)
+                    try c.encodeIfPresent(first_name, forKey: .first_name)
+                    try c.encodeIfPresent(last_name, forKey: .last_name)
+                    try c.encodeIfPresent(Currency, forKey: .Currency)
+                    try c.encodeIfPresent(Theme, forKey: .Theme)
+                    try c.encodeIfPresent(ExpenseLimitType, forKey: .ExpenseLimitType)
+                    try c.encodeIfPresent(ExpenseLimitValue, forKey: .ExpenseLimitValue)
+                    try c.encodeIfPresent(ExpenseLimitPeriod, forKey: .ExpenseLimitPeriod)
+                }
+                
+                enum CodingKeys: String, CodingKey {
+                    case EmailAddress, account_password, first_name, last_name, Currency, Theme
+                    case ExpenseLimitType, ExpenseLimitValue, ExpenseLimitPeriod
+                }
             }
         }
     }

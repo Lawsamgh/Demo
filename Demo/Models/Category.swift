@@ -51,6 +51,34 @@ struct Category: Identifiable, Codable {
         (["other", "misc", "miscellaneous", "general", "uncategorized"], "tag.fill")
     ]
     
+    /// Map keywords in category name to a distinct color
+    private static let nameToColor: [(keywords: [String], color: String)] = [
+        (["food", "groceries", "eating", "restaurant", "dining", "meal", "lunch", "dinner", "breakfast"], "orange"),
+        (["drink", "drinks", "beverage", "bar", "wine", "beer", "coffee", "tea", "cafe"], "brown"),
+        (["transport", "car", "travel", "uber", "taxi", "fuel", "gas", "petrol", "commute"], "blue"),
+        (["bus", "transit"], "indigo"),
+        (["flight", "airline", "plane"], "cyan"),
+        (["shopping", "store", "retail", "market", "mall"], "pink"),
+        (["bills", "utilities", "electric", "water", "rent", "mortgage", "insurance"], "purple"),
+        (["entertainment", "movie", "cinema", "netflix", "streaming", "game", "gaming"], "red"),
+        (["health", "medical", "pharmacy", "doctor", "fitness", "gym"], "green"),
+        (["education", "school", "course", "training", "book"], "teal"),
+        (["salary", "income", "pay", "wage", "freelance", "work"], "mint"),
+        (["gift", "donation", "charity"], "yellow"),
+        (["home", "housing", "house"], "indigo"),
+        (["subscription", "membership"], "purple"),
+        (["pet", "animal", "vet"], "orange"),
+        (["personal", "care", "beauty"], "pink"),
+        (["kids", "child", "baby"], "cyan"),
+        (["tax"], "red"),
+        (["other", "misc", "miscellaneous", "general", "uncategorized"], "gray")
+    ]
+    
+    /// Palette of distinct colors for fallback assignment by index/hash
+    private static let colorPalette: [String] = [
+        "blue", "green", "orange", "purple", "pink", "red", "teal", "indigo", "cyan", "mint", "yellow", "brown"
+    ]
+    
     /// Icon to show in the UI. Uses stored icon if valid, else derives from category name so any category gets an appropriate icon.
     var displayIcon: String {
         let raw = (icon ?? "").trimmingCharacters(in: .whitespaces).lowercased()
@@ -71,9 +99,28 @@ struct Category: Identifiable, Codable {
         return "tag.fill"
     }
     
-    // Default color if not provided
+    /// Color to show in the UI. Uses stored color if valid, else derives from category name.
     var displayColor: String {
-        color ?? "gray"
+        // Use stored color if provided and not empty
+        if let storedColor = color?.trimmingCharacters(in: .whitespaces).lowercased(),
+           !storedColor.isEmpty {
+            return storedColor
+        }
+        // Derive color from category name
+        return Self.colorForName(name)
+    }
+    
+    /// Returns a color for a given name (e.g. "Food" → "orange"). Falls back to palette by hash.
+    static func colorForName(_ name: String) -> String {
+        let nameLower = name.lowercased()
+        for mapping in Self.nameToColor {
+            if mapping.keywords.contains(where: { nameLower.contains($0) }) {
+                return mapping.color
+            }
+        }
+        // Fallback: assign color from palette based on name hash for consistency
+        let hash = abs(nameLower.hashValue)
+        return colorPalette[hash % colorPalette.count]
     }
 }
 

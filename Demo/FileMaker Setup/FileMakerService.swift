@@ -186,6 +186,13 @@ class FileMakerService {
         }
     }
     
+    /// Updates the user's expense limit in FileMaker (test_table_login)
+    func updateUserExpenseLimit(userID: String, type: String, value: Double, period: String) async throws {
+        return try await withSession { token in
+            try await self.performUpdateUserExpenseLimit(userID: userID, type: type, value: value, period: period, token: token)
+        }
+    }
+    
     /// Updates the user's password in FileMaker (test_table_login.account_password)
     func updateUserPassword(userID: String, newPassword: String) async throws {
         return try await withSession { token in
@@ -294,11 +301,17 @@ class FileMakerService {
             // Theme: "Light Mode" or "Dark Mode"; empty defaults to Light Mode
             let themeRaw = userData.fieldData.Theme?.trimmingCharacters(in: .whitespaces)
             let theme: String? = (themeRaw?.isEmpty == false) ? themeRaw : nil
+            // Expense limit: type (percentage/amount), value, period (week/month/year)
+            let limitTypeRaw = userData.fieldData.ExpenseLimitType?.trimmingCharacters(in: .whitespaces).lowercased()
+            let expenseLimitType: String? = (limitTypeRaw == "percentage" || limitTypeRaw == "amount") ? limitTypeRaw : nil
+            let expenseLimitValue: Double? = userData.fieldData.ExpenseLimitValue
+            let limitPeriodRaw = userData.fieldData.ExpenseLimitPeriod?.trimmingCharacters(in: .whitespaces).lowercased()
+            let expenseLimitPeriod: String? = (limitPeriodRaw == "week" || limitPeriodRaw == "month" || limitPeriodRaw == "year") ? limitPeriodRaw : nil
             print("✅ Login successful!")
             print("📋 PrimaryKey (recordId) from test_table_login: '\(userID)'")
             print("📋 PrimaryKey type: \(type(of: userID))")
             print("📋 This PrimaryKey will be used to filter Category table by UserID field")
-            return User(userID: userID, firstName: firstName, lastName: lastName, email: email, currency: currency, theme: theme)
+            return User(userID: userID, firstName: firstName, lastName: lastName, email: email, currency: currency, theme: theme, expenseLimitType: expenseLimitType, expenseLimitValue: expenseLimitValue, expenseLimitPeriod: expenseLimitPeriod)
         } else {
             try handleErrorResponse(data: data, statusCode: httpResponse.statusCode)
             throw FileMakerError.userNotFound
@@ -596,6 +609,34 @@ class FileMakerService {
         
         if httpResponse.statusCode == 200 {
             print("✅ Theme updated successfully")
+            return
+        }
+        try handleErrorResponse(data: data, statusCode: httpResponse.statusCode)
+        throw FileMakerError.httpError(statusCode: httpResponse.statusCode)
+    }
+    
+    /// Updates the user's expense limit in FileMaker (test_table_login)
+    private func performUpdateUserExpenseLimit(userID: String, type: String, value: Double, period: String, token: String) async throws {
+        let endpoint = "layouts/\(FileMakerConfig.layoutName)/records/\(userID)"
+        let url = try requestBuilder.buildURL(endpoint: endpoint)
+        
+        let fieldData: [String: Any] = [
+            FileMakerConfig.userExpenseLimitTypeField: type,
+            FileMakerConfig.userExpenseLimitValueField: value,
+            FileMakerConfig.userExpenseLimitPeriodField: period
+        ]
+        let body = try requestBuilder.createRecordBody(fieldData: fieldData)
+        let request = requestBuilder.createRequest(url: url, method: "PATCH", body: body, sessionToken: token)
+        
+        print("📝 Updating user expense limit in FileMaker: \(type)=\(value) \(period)")
+        let (data, response) = try await performRequest(request: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw FileMakerError.invalidResponse
+        }
+        
+        if httpResponse.statusCode == 200 {
+            print("✅ Expense limit updated successfully")
             return
         }
         try handleErrorResponse(data: data, statusCode: httpResponse.statusCode)

@@ -95,6 +95,43 @@ struct HomeView: View {
         totalIncome - totalExpenses
     }
     
+    /// True when expense limit is set, period matches, and user is over the limit
+    private var isOverExpenseLimit: Bool {
+        guard let user = userSession.currentUser,
+              let limitType = user.expenseLimitType,
+              let limitValue = user.expenseLimitValue,
+              let limitPeriod = user.expenseLimitPeriod,
+              limitValue > 0 else { return false }
+        let periodMatches: Bool
+        switch selectedPeriod {
+        case .week: periodMatches = (limitPeriod == "week")
+        case .month: periodMatches = (limitPeriod == "month")
+        case .year: periodMatches = (limitPeriod == "year")
+        }
+        guard periodMatches else { return false }
+        if limitType == "percentage" {
+            guard totalIncome > 0 else { return false }
+            let percent = (totalExpenses / totalIncome) * 100
+            return percent >= limitValue
+        } else {
+            return totalExpenses >= limitValue
+        }
+    }
+    
+    private var expenseLimitBannerMessage: String {
+        guard let user = userSession.currentUser,
+              let limitType = user.expenseLimitType,
+              let limitValue = user.expenseLimitValue,
+              let limitPeriod = user.expenseLimitPeriod else { return "" }
+        let periodLabel = limitPeriod == "week" ? "this week" : (limitPeriod == "month" ? "this month" : "this year")
+        if limitType == "percentage" {
+            let actual = totalIncome > 0 ? (totalExpenses / totalIncome) * 100 : 0
+            return "You've spent \(String(format: "%.0f", actual))% of your income \(periodLabel) — over your \(Int(limitValue))% limit."
+        } else {
+            return "You've exceeded your \(UserSession.formatCurrency(amount: limitValue, currencyCode: user.currency)) limit \(periodLabel)."
+        }
+    }
+    
     /// Recent 5 transactions in the selected period, sorted by CreationTimestamp (newest first); use "See All" for the full list.
     private var recentTransactions: [Expense] {
         filteredExpenses.sorted { $0.sortDateForRecency > $1.sortDateForRecency }.prefix(5).map { $0 }
@@ -249,6 +286,12 @@ struct HomeView: View {
                                 .padding(.horizontal, 20)
                         }
                         
+                        // Expense limit warning banner
+                        if !isLoadingExpenses && isOverExpenseLimit {
+                            expenseLimitBanner
+                                .padding(.horizontal, 20)
+                        }
+                        
                         // Spending Chart Preview (skeleton when loading)
                         if isLoadingExpenses {
                             spendingPreviewSkeleton
@@ -275,31 +318,21 @@ struct HomeView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    HStack(spacing: 8) {
-                        Button {
-                            // Notifications
-                        } label: {
-                            Image(systemName: "bell")
-                                .font(.system(size: 20, weight: .medium))
-                                .foregroundStyle(.primary)
+                    Button {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            showAddExpense = true
                         }
-                        
-                        Button {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                showAddExpense = true
-                            }
-                        } label: {
-                            Image(systemName: "plus.circle.fill")
-                                .font(.system(size: 28))
-                                .foregroundStyle(
-                                    LinearGradient(
-                                        colors: [.blue, .purple],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 28))
+                            .foregroundStyle(
+                                LinearGradient(
+                                    colors: [.blue, .purple],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
                                 )
-                                .shadow(color: .blue.opacity(0.3), radius: 4, x: 0, y: 2)
-                        }
+                            )
+                            .shadow(color: .blue.opacity(0.3), radius: 4, x: 0, y: 2)
                     }
                 }
             }
@@ -325,6 +358,34 @@ struct HomeView: View {
                 await loadExpenses()
             }
         }
+    }
+    
+    // MARK: - Expense Limit Banner (when over limit)
+    private var expenseLimitBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 24))
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Spending Over Limit")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.primary)
+                Text(expenseLimitBannerMessage)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.orange.opacity(0.12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(Color.orange.opacity(0.4), lineWidth: 1)
+                )
+        )
     }
     
     // MARK: - Currency Prompt (when not set)
@@ -971,15 +1032,20 @@ struct CategoryCard: View {
     let percentage: Double
     let currencyCode: String?
     
+    /// Category circle/icon color — same logic as TransactionCard
+    private var categoryColor: Color {
+        colorFromString(category.displayColor)
+    }
+    
     var body: some View {
         HStack(spacing: 16) {
             Circle()
-                .fill(Color(category.displayColor).opacity(0.15))
-                .frame(width: 50, height: 50)
+                .fill(categoryColor.opacity(0.15))
+                .frame(width: 46, height: 46)
                 .overlay(
                     Image(systemName: category.displayIcon)
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(colorScheme == .dark ? Color(category.displayColor) : .black)
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(colorScheme == .dark ? categoryColor : .black)
                 )
             
             VStack(alignment: .leading, spacing: 6) {
@@ -1007,11 +1073,29 @@ struct CategoryCard: View {
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.tertiary)
         }
-        .padding(16)
+        .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 16)
                 .fill(Color(.secondarySystemGroupedBackground))
         )
+    }
+    
+    private func colorFromString(_ colorName: String) -> Color {
+        switch colorName.lowercased() {
+        case "red": return .red
+        case "blue": return .blue
+        case "green": return .green
+        case "orange": return .orange
+        case "purple": return .purple
+        case "pink": return .pink
+        case "yellow": return .yellow
+        case "indigo": return .indigo
+        case "teal": return .teal
+        case "cyan": return .cyan
+        case "mint": return .mint
+        case "brown": return .brown
+        default: return .gray
+        }
     }
 }
 
@@ -1095,6 +1179,7 @@ struct TransactionCard: View {
         case "teal": return .teal
         case "cyan": return .cyan
         case "mint": return .mint
+        case "brown": return .brown
         default: return .gray
         }
     }

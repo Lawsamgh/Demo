@@ -380,6 +380,7 @@ struct CategoryRowView: View {
         case "teal": return .teal
         case "cyan": return .cyan
         case "mint": return .mint
+        case "brown": return .brown
         default: return .gray
         }
     }

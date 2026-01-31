@@ -46,6 +46,10 @@ struct SettingView: View {
     @State private var showChangePasswordSheet = false
     @State private var passwordError: String?
     @State private var showPasswordError = false
+    @State private var showExpenseLimitSheet = false
+    @State private var isSavingExpenseLimit = false
+    @State private var expenseLimitError: String?
+    @State private var showExpenseLimitError = false
     
     var body: some View {
         NavigationStack {
@@ -137,6 +141,26 @@ struct SettingView: View {
         } message: {
             Text(passwordError ?? "Failed to change password")
         }
+        .sheet(isPresented: $showExpenseLimitSheet) {
+            if let user = userSession.currentUser {
+                ExpenseLimitSheet(
+                    currentType: user.expenseLimitType ?? "percentage",
+                    currentValue: user.expenseLimitValue ?? 80,
+                    currentPeriod: user.expenseLimitPeriod ?? "month",
+                    currencyCode: user.currency,
+                    isSaving: $isSavingExpenseLimit,
+                    onSave: { type, value, period in
+                        Task { await saveExpenseLimit(type: type, value: value, period: period) }
+                    },
+                    onDismiss: { showExpenseLimitSheet = false }
+                )
+            }
+        }
+        .alert("Expense Limit Error", isPresented: $showExpenseLimitError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(expenseLimitError ?? "Failed to save expense limit")
+        }
     }
     
     private func saveTheme(_ theme: String) async {
@@ -156,6 +180,25 @@ struct SettingView: View {
             }
         }
         isSavingTheme = false
+    }
+    
+    private func saveExpenseLimit(type: String, value: Double, period: String) async {
+        guard let user = userSession.currentUser else { return }
+        isSavingExpenseLimit = true
+        expenseLimitError = nil
+        do {
+            try await FileMakerService.shared.updateUserExpenseLimit(userID: user.userID, type: type, value: value, period: period)
+            await MainActor.run {
+                userSession.updateExpenseLimit(type: type, value: value, period: period)
+                showExpenseLimitSheet = false
+            }
+        } catch {
+            await MainActor.run {
+                expenseLimitError = error.localizedDescription
+                showExpenseLimitError = true
+            }
+        }
+        isSavingExpenseLimit = false
     }
     
     private func saveCurrency(_ currency: String) async {
@@ -261,18 +304,6 @@ struct SettingView: View {
                 ) {
                     showCurrencySheet = true
                 }
-                
-                Divider()
-                    .padding(.leading, 56)
-                
-                ProfileRow(
-                    icon: "bell.fill",
-                    title: "Notifications",
-                    color: .purple,
-                    iconBackground: Color.purple.opacity(0.15)
-                ) {
-                    // Handle notifications
-                }
             }
             .background(
                 RoundedRectangle(cornerRadius: 16)
@@ -302,12 +333,43 @@ struct SettingView: View {
                     impactFeedback.impactOccurred()
                     showCategoryManagement = true
                 }
+                
+                Divider()
+                    .padding(.leading, 56)
+                
+                ProfileRow(
+                    icon: "chart.line.uptrend.xyaxis",
+                    title: "Expense Limit",
+                    subtitle: expenseLimitSubtitle,
+                    color: .orange,
+                    iconBackground: Color.orange.opacity(0.15)
+                ) {
+                    let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+                    impactFeedback.impactOccurred()
+                    showExpenseLimitSheet = true
+                }
             }
             .background(
                 RoundedRectangle(cornerRadius: 16)
                     .fill(Color(.secondarySystemGroupedBackground))
                     .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
             )
+        }
+    }
+    
+    private var expenseLimitSubtitle: String {
+        guard let user = userSession.currentUser,
+              let type = user.expenseLimitType,
+              let value = user.expenseLimitValue,
+              let period = user.expenseLimitPeriod,
+              value > 0 else {
+            return "Not set"
+        }
+        let periodLabel = period == "week" ? "weekly" : (period == "month" ? "monthly" : "yearly")
+        if type == "percentage" {
+            return "\(Int(value))% of income (\(periodLabel))"
+        } else {
+            return "\(UserSession.formatCurrency(amount: value, currencyCode: user.currency)) (\(periodLabel))"
         }
     }
     
@@ -732,6 +794,168 @@ struct ThemePickerSheet: View {
                 }
             }
             .navigationTitle("Appearance")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") {
+                        onDismiss()
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Expense Limit Sheet
+struct ExpenseLimitSheet: View {
+    let currentType: String
+    let currentValue: Double
+    let currentPeriod: String
+    let currencyCode: String?
+    @Binding var isSaving: Bool
+    let onSave: (String, Double, String) -> Void
+    let onDismiss: () -> Void
+    @Environment(\.dismiss) var dismiss
+    @Environment(\.colorScheme) var colorScheme
+    
+    @State private var limitType: String
+    @State private var percentageValue: Double
+    @State private var amountValue: String
+    @State private var period: String
+    
+    init(currentType: String, currentValue: Double, currentPeriod: String, currencyCode: String?, isSaving: Binding<Bool>, onSave: @escaping (String, Double, String) -> Void, onDismiss: @escaping () -> Void) {
+        self.currentType = currentType
+        self.currentValue = currentValue
+        self.currentPeriod = currentPeriod
+        self.currencyCode = currencyCode
+        self._isSaving = isSaving
+        self.onSave = onSave
+        self.onDismiss = onDismiss
+        _limitType = State(initialValue: currentType == "amount" ? "amount" : "percentage")
+        _percentageValue = State(initialValue: currentType == "amount" ? 80 : currentValue)
+        _amountValue = State(initialValue: currentType == "amount" ? String(format: "%.2f", currentValue) : "")
+        _period = State(initialValue: currentPeriod)
+    }
+    
+    private var canSave: Bool {
+        if limitType == "percentage" {
+            return percentageValue >= 10 && percentageValue <= 100
+        } else {
+            guard let val = Double(amountValue), val > 0 else { return false }
+            return true
+        }
+    }
+    
+    private var effectiveValue: Double {
+        if limitType == "percentage" { return percentageValue }
+        return Double(amountValue) ?? 0
+    }
+    
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color(.systemGroupedBackground)
+                    .ignoresSafeArea()
+                
+                ScrollView {
+                    VStack(spacing: 24) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Limit Type")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            Picker("Limit Type", selection: $limitType) {
+                                Text("Percentage of income").tag("percentage")
+                                Text("Fixed amount").tag("amount")
+                            }
+                            .pickerStyle(.segmented)
+                        }
+                        
+                        if limitType == "percentage" {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Alert when spending exceeds")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                HStack {
+                                    Slider(value: $percentageValue, in: 10...100, step: 5)
+                                    Text("\(Int(percentageValue))%")
+                                        .font(.system(size: 17, weight: .semibold))
+                                        .frame(width: 50, alignment: .trailing)
+                                }
+                                Text("You'll be notified when expenses exceed this % of your income")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.tertiary)
+                            }
+                        } else {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Maximum expense amount")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                HStack {
+                                    Text(UserSession.currencySymbol(for: currencyCode))
+                                        .font(.system(size: 17))
+                                        .foregroundStyle(.secondary)
+                                    TextField("0.00", text: $amountValue)
+                                        .keyboardType(.decimalPad)
+                                        .font(.system(size: 17))
+                                }
+                                .padding(16)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(colorScheme == .dark ? Color(.secondarySystemGroupedBackground) : Color.white)
+                                )
+                                Text("You'll be notified when expenses exceed this amount")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                        
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Period")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            Picker("Period", selection: $period) {
+                                Text("Week").tag("week")
+                                Text("Month").tag("month")
+                                Text("Year").tag("year")
+                            }
+                            .pickerStyle(.segmented)
+                        }
+                        
+                        Button {
+                            onSave(limitType, effectiveValue, period)
+                        } label: {
+                            HStack {
+                                if isSaving {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                } else {
+                                    Text("Save")
+                                        .font(.system(size: 17, weight: .semibold))
+                                }
+                            }
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [.blue, .purple],
+                                            startPoint: .leading,
+                                            endPoint: .trailing
+                                        )
+                                    )
+                            )
+                        }
+                        .disabled(!canSave || isSaving)
+                        .opacity(canSave && !isSaving ? 1 : 0.6)
+                        .padding(.top, 8)
+                    }
+                    .padding(20)
+                }
+            }
+            .navigationTitle("Expense Limit")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

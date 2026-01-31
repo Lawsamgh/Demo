@@ -96,6 +96,15 @@ class UserSession: ObservableObject {
         print("✅ Theme updated to: \(theme)")
     }
     
+    /// Updates the current user's expense limit
+    func updateExpenseLimit(type: String, value: Double, period: String) {
+        guard let user = currentUser else { return }
+        let updatedUser = user.withExpenseLimit(type: type, value: value, period: period)
+        self.currentUser = updatedUser
+        saveUserToDefaults(updatedUser)
+        print("✅ Expense limit updated: \(type)=\(value) \(period)")
+    }
+    
     /// Preferred color scheme from user's theme: nil/empty/"Light Mode" → light, "Dark Mode" → dark
     var preferredColorScheme: ColorScheme? {
         let t = currentUser?.theme?.trimmingCharacters(in: .whitespaces).lowercased()
@@ -122,7 +131,7 @@ class UserSession: ObservableObject {
             formatter.numberStyle = .decimal
         }
         formatter.maximumFractionDigits = 2
-        formatter.minimumFractionDigits = 0
+        formatter.minimumFractionDigits = 2
         return formatter.string(from: NSNumber(value: amount)) ?? (hasCurrency ? "\(code!) \(amount)" : "\(amount)")
     }
     
