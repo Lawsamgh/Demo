@@ -9,6 +9,7 @@ import SwiftUI
 
 struct SignUpView: View {
     @Binding var showSignUp: Bool
+    @StateObject private var userSession = UserSession.shared
     @State private var firstName: String = ""
     @State private var lastName: String = ""
     @State private var email: String = ""
@@ -479,21 +480,39 @@ struct SignUpView: View {
                 )
                 
                 await MainActor.run {
-                    isLoading = false
-                    
                     if success {
                         hapticFeedback.impactOccurred(intensity: 0.5)
                         print("✅ Sign up successful for email: \(email)")
-                        // Reset fields
+                        // Auto-login so new user sees onboarding
+                        let signUpEmail = email.trimmingCharacters(in: .whitespaces)
+                        let signUpPassword = password
                         firstName = ""
                         lastName = ""
                         email = ""
                         password = ""
                         confirmPassword = ""
-                        // Return to login
-                        withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
-                            showSignUp = false
+                        Task {
+                            do {
+                                let user = try await FileMakerService.shared.loginUser(email: signUpEmail, password: signUpPassword)
+                                await MainActor.run {
+                                    userSession.login(user: user)
+                                    isLoading = false
+                                    withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+                                        showSignUp = false
+                                    }
+                                }
+                            } catch {
+                                await MainActor.run {
+                                    isLoading = false
+                                    print("⚠️ Auto-login after sign up failed: \(error.localizedDescription)")
+                                    withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+                                        showSignUp = false
+                                    }
+                                }
+                            }
                         }
+                    } else {
+                        isLoading = false
                     }
                 }
             } catch {

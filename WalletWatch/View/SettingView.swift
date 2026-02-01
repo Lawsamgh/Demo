@@ -390,6 +390,8 @@ struct SettingView: View {
                     color: .indigo,
                     iconBackground: Color.indigo.opacity(0.15)
                 ) {
+                    let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+                    impactFeedback.impactOccurred()
                     showThemeSheet = true
                 }
                 
@@ -753,13 +755,14 @@ struct ChangePasswordSheet: View {
     }
 }
 
-// MARK: - Theme Picker Sheet
+// MARK: - Theme Picker Sheet (iPhone Settings-style)
 struct ThemePickerSheet: View {
     let currentTheme: String
     @Binding var isSaving: Bool
     let onSelect: (String) -> Void
     let onDismiss: () -> Void
     @Environment(\.dismiss) var dismiss
+    @Environment(\.colorScheme) var colorScheme
     
     private var effectiveCurrentTheme: String {
         let t = currentTheme.trimmingCharacters(in: .whitespaces)
@@ -768,29 +771,42 @@ struct ThemePickerSheet: View {
     
     var body: some View {
         NavigationStack {
-            List {
-                ForEach(themeOptions, id: \.value) { option in
-                    Button {
-                        onSelect(option.value)
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(option.name)
-                                    .font(.system(size: 17, weight: .semibold))
-                                    .foregroundStyle(.primary)
-                            }
-                            Spacer()
-                            if effectiveCurrentTheme == option.value {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(.green)
-                            }
-                            if isSaving {
-                                ProgressView()
+            ZStack {
+                Color(.systemGroupedBackground)
+                    .ignoresSafeArea()
+                
+                ScrollView {
+                    VStack(spacing: 24) {
+                        // Header
+                        Text("Choose how WalletWatch looks. Light mode uses a light background; Dark mode uses a dark background.")
+                            .font(.system(size: 15, weight: .regular))
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 20)
+                            .padding(.top, 8)
+                        
+                        // Theme selection cards (iOS Display & Brightness style)
+                        VStack(spacing: 16) {
+                            ForEach(themeOptions, id: \.value) { option in
+                                ThemeOptionCard(
+                                    title: option.name,
+                                    icon: option.value == "Light Mode" ? "sun.max.fill" : "moon.fill",
+                                    isSelected: effectiveCurrentTheme == option.value,
+                                    isLightPreview: option.value == "Light Mode",
+                                    isLoading: isSaving
+                                ) {
+                                    let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+                                    impactFeedback.impactOccurred()
+                                    onSelect(option.value)
+                                }
+                                .disabled(isSaving)
                             }
                         }
-                        .padding(.vertical, 4)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 8)
+                        
+                        Spacer(minLength: 40)
                     }
-                    .disabled(isSaving)
                 }
             }
             .navigationTitle("Appearance")
@@ -801,9 +817,91 @@ struct ThemePickerSheet: View {
                         onDismiss()
                         dismiss()
                     }
+                    .disabled(isSaving)
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    if isSaving {
+                        ProgressView()
+                    }
                 }
             }
         }
+    }
+}
+
+private struct ThemeOptionCard: View {
+    let title: String
+    let icon: String
+    let isSelected: Bool
+    let isLightPreview: Bool
+    let isLoading: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 20) {
+                // Preview panel (mini appearance sample)
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(isLightPreview ? Color.white : Color(red: 0.11, green: 0.11, blue: 0.12))
+                    .frame(width: 72, height: 96)
+                    .overlay(
+                        VStack(spacing: 8) {
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(isLightPreview ? Color.gray.opacity(0.3) : Color.gray.opacity(0.5))
+                                .frame(height: 8)
+                                .frame(maxWidth: .infinity)
+                                .padding(.horizontal, 12)
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(isLightPreview ? Color.gray.opacity(0.2) : Color.gray.opacity(0.4))
+                                .frame(height: 6)
+                                .frame(maxWidth: .infinity)
+                                .padding(.horizontal, 12)
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(isLightPreview ? Color.gray.opacity(0.2) : Color.gray.opacity(0.4))
+                                .frame(height: 6)
+                                .frame(maxWidth: .infinity)
+                                .padding(.horizontal, 12)
+                            Spacer()
+                        }
+                        .padding(.vertical, 16)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(isLightPreview ? Color.gray.opacity(0.3) : Color.gray.opacity(0.5), lineWidth: 1)
+                    )
+                
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 10) {
+                        Image(systemName: icon)
+                            .font(.system(size: 22, weight: .medium))
+                            .foregroundStyle(isLightPreview ? .orange : .indigo)
+                        Text(title)
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(.primary)
+                    }
+                    Text(isLightPreview ? "Light background with dark text" : "Dark background with light text")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                
+                if isSelected && !isLoading {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 24))
+                        .foregroundStyle(.green)
+                }
+            }
+            .padding(20)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color(.secondarySystemGroupedBackground))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+            )
+        }
+        .buttonStyle(.plain)
     }
 }
 

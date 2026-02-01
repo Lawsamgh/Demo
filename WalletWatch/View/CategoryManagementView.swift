@@ -153,12 +153,7 @@ struct CategoryManagementView: View {
         isLoading = true
         errorMessage = nil
         
-        do {
-            await userSession.fetchCategories()
-        } catch {
-            errorMessage = error.localizedDescription
-            showErrorAlert = true
-        }
+        await userSession.fetchCategories()
         
         isLoading = false
     }

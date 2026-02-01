@@ -433,7 +433,7 @@ class FileMakerService {
         if httpResponse.statusCode == 200 {
             let categoryResponse = try JSONDecoder().decode(FileMakerCategoryResponse.self, from: data)
             
-            guard let dataInfo = categoryResponse.response?.dataInfo,
+            guard categoryResponse.response?.dataInfo != nil,
                   let categoryRecords = categoryResponse.response?.data else {
                 print("⚠️ No categories found for user")
                 return []
