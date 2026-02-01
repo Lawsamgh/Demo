@@ -17,6 +17,9 @@ struct ActivityView: View {
     @State private var selectedMonth: Int = Calendar.current.component(.month, from: Date())
     @State private var showAllActivityTransactions = false
     @State private var selectedCategoryDetailItem: CategoryDetailSheetItem?
+    @State private var expenseToEdit: Expense?
+    @State private var deleteError: String?
+    @State private var showDeleteError = false
     
     private let maxTimelineRecords = 5
     
@@ -445,6 +448,18 @@ struct ActivityView: View {
                                             category: category(for: expense.categoryID),
                                             currencyCode: userSession.currentUser?.currency
                                         )
+                                        .contextMenu {
+                                            Button {
+                                                expenseToEdit = expense
+                                            } label: {
+                                                Label("Edit", systemImage: "pencil")
+                                            }
+                                            Button(role: .destructive) {
+                                                Task { await deleteExpense(expense) }
+                                            } label: {
+                                                Label("Delete", systemImage: "trash")
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -472,17 +487,48 @@ struct ActivityView: View {
                     AllTransactionsView(
                         userSession: userSession,
                         transactions: allTransactions,
-                        currencyCode: userSession.currentUser?.currency
+                        currencyCode: userSession.currentUser?.currency,
+                        onDelete: { expense in await deleteExpense(expense) },
+                        onEdit: { expense in
+                            showAllActivityTransactions = false
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                                expenseToEdit = expense
+                            }
+                        }
                     )
                     .presentationDetents([.large])
                     .presentationDragIndicator(.visible)
+                }
+                .sheet(item: $expenseToEdit) { expense in
+                    AddExpenseView(
+                        expenses: Binding(
+                            get: { expenses },
+                            set: { expenses = $0 }
+                        ),
+                        existingExpense: expense,
+                        onSaveComplete: { Task { await loadExpenses() } }
+                    )
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+                }
+                .alert("Delete Error", isPresented: $showDeleteError) {
+                    Button("OK", role: .cancel) { }
+                } message: {
+                    Text(deleteError ?? "Failed to delete transaction")
                 }
                 .sheet(item: $selectedCategoryDetailItem) { item in
                     CategoryExpensesDetailView(
                         userSession: userSession,
                         category: item.category,
                         expenses: item.expenses,
-                        currencyCode: userSession.currentUser?.currency
+                        currencyCode: userSession.currentUser?.currency,
+                        onDelete: { expense in await deleteExpense(expense) },
+                        onEdit: { expense in
+                            selectedCategoryDetailItem = nil
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                                expenseToEdit = expense
+                            }
+                        }
                     )
                     .presentationDetents([.large])
                     .presentationDragIndicator(.visible)
@@ -540,6 +586,19 @@ struct ActivityView: View {
             print("❌ Failed to load expenses for Activity: \(error.localizedDescription)")
         }
         isLoadingExpenses = false
+    }
+    
+    private func deleteExpense(_ expense: Expense) async {
+        deleteError = nil
+        do {
+            try await FileMakerService.shared.deleteExpense(recordId: expense.id)
+            await loadExpenses()
+        } catch {
+            await MainActor.run {
+                deleteError = error.localizedDescription
+                showDeleteError = true
+            }
+        }
     }
 }
 

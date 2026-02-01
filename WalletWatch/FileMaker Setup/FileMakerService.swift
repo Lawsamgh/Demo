@@ -165,6 +165,20 @@ class FileMakerService {
         }
     }
     
+    /// Deletes an expense record
+    func deleteExpense(recordId: String) async throws {
+        return try await withSession { token in
+            try await self.performDeleteRecord(layout: FileMakerConfig.expenseLayoutName, recordId: recordId, token: token)
+        }
+    }
+    
+    /// Updates an existing expense record
+    func updateExpense(recordId: String, date: Date, amount: Double, categoryID: String, paymentMethod: String, description: String, type: ExpenseType) async throws {
+        return try await withSession { token in
+            try await self.performUpdateExpense(recordId: recordId, date: date, amount: amount, categoryID: categoryID, paymentMethod: paymentMethod, description: description, type: type, token: token)
+        }
+    }
+    
     /// Fetches expenses for a specific user from FileMaker
     func fetchExpenses(userID: String) async throws -> [Expense] {
         return try await withSession { token in
@@ -742,6 +756,41 @@ class FileMakerService {
         }
         try handleErrorResponse(data: data, statusCode: httpResponse.statusCode)
         throw FileMakerError.invalidResponse
+    }
+    
+    /// Updates an existing expense record
+    private func performUpdateExpense(recordId: String, date: Date, amount: Double, categoryID: String, paymentMethod: String, description: String, type: ExpenseType, token: String) async throws {
+        let endpoint = "layouts/\(FileMakerConfig.expenseLayoutName)/records/\(recordId)"
+        let url = try requestBuilder.buildURL(endpoint: endpoint)
+        
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "MM/dd/yyyy"
+        let dateString = dateFormatter.string(from: date)
+        
+        let fieldData: [String: Any] = [
+            FileMakerConfig.expenseDateField: dateString,
+            FileMakerConfig.expenseAmountField: amount,
+            FileMakerConfig.expenseCategoryIDField: categoryID,
+            FileMakerConfig.expensePaymentMethodField: paymentMethod,
+            FileMakerConfig.expenseDescriptionField: description,
+            FileMakerConfig.expenseTypeField: type.rawValue
+        ]
+        let body = try requestBuilder.createRecordBody(fieldData: fieldData)
+        let request = requestBuilder.createRequest(url: url, method: "PATCH", body: body, sessionToken: token)
+        
+        print("📝 Updating expense record in FileMaker: \(recordId)")
+        let (data, response) = try await performRequest(request: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw FileMakerError.invalidResponse
+        }
+        
+        if httpResponse.statusCode == 200 {
+            print("✅ Expense updated successfully")
+            return
+        }
+        try handleErrorResponse(data: data, statusCode: httpResponse.statusCode)
+        throw FileMakerError.httpError(statusCode: httpResponse.statusCode)
     }
     
     /// Fetches expenses for a user from FileMaker

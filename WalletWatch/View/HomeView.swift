@@ -20,6 +20,9 @@ struct HomeView: View {
     @State private var currencyError: String?
     @State private var showCurrencyError = false
     @State private var showAllTransactions = false
+    @State private var expenseToEdit: Expense?
+    @State private var deleteError: String?
+    @State private var showDeleteError = false
     /// Selected year for Month/Year view (e.g. 2025 for "last year")
     @State private var selectedYear: Int = Calendar.current.component(.year, from: Date())
     /// Selected month (1...12) for Month view
@@ -351,6 +354,20 @@ struct HomeView: View {
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
             }
+            .sheet(item: $expenseToEdit) { expense in
+                AddExpenseView(
+                    expenses: $expenses,
+                    existingExpense: expense,
+                    onSaveComplete: { Task { await loadExpenses() } }
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            }
+            .alert("Delete Error", isPresented: $showDeleteError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(deleteError ?? "Failed to delete transaction")
+            }
             .sheet(isPresented: $showCurrencySheet) {
                 CurrencyPickerSheet(
                     currentCurrency: userSession.currentUser?.currency,
@@ -513,6 +530,19 @@ struct HomeView: View {
             print("❌ Failed to load expenses: \(error.localizedDescription)")
         }
         isLoadingExpenses = false
+    }
+    
+    private func deleteExpense(_ expense: Expense) async {
+        deleteError = nil
+        do {
+            try await FileMakerService.shared.deleteExpense(recordId: expense.id)
+            await loadExpenses()
+        } catch {
+            await MainActor.run {
+                deleteError = error.localizedDescription
+                showDeleteError = true
+            }
+        }
     }
     
     // MARK: - Header Section
@@ -824,6 +854,18 @@ struct HomeView: View {
             VStack(spacing: 12) {
                 ForEach(recentTransactions) { expense in
                     TransactionCard(expense: expense, category: category(for: expense.categoryID), currencyCode: userSession.currentUser?.currency)
+                        .contextMenu {
+                            Button {
+                                expenseToEdit = expense
+                            } label: {
+                                Label("Edit", systemImage: "pencil")
+                            }
+                            Button(role: .destructive) {
+                                Task { await deleteExpense(expense) }
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
                 }
             }
         }
@@ -831,7 +873,14 @@ struct HomeView: View {
             AllTransactionsView(
                 userSession: userSession,
                 transactions: allTransactions,
-                currencyCode: userSession.currentUser?.currency
+                currencyCode: userSession.currentUser?.currency,
+                onDelete: { expense in await deleteExpense(expense) },
+                onEdit: { expense in
+                    showAllTransactions = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        expenseToEdit = expense
+                    }
+                }
             )
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
@@ -1217,6 +1266,8 @@ struct CategoryExpensesDetailView: View {
     let category: Category
     let expenses: [Expense]
     let currencyCode: String?
+    var onDelete: ((Expense) async -> Void)? = nil
+    var onEdit: ((Expense) -> Void)? = nil
     
     private var groupedByDate: [(section: String, items: [Expense])] {
         let sorted = expenses.sorted { $0.sortDateForRecency > $1.sortDateForRecency }
@@ -1306,6 +1357,23 @@ struct CategoryExpensesDetailView: View {
                                                     category: category,
                                                     currencyCode: currencyCode
                                                 )
+                                                .contextMenu {
+                                                    if let onEdit = onEdit {
+                                                        Button {
+                                                            onEdit(expense)
+                                                            dismiss()
+                                                        } label: {
+                                                            Label("Edit", systemImage: "pencil")
+                                                        }
+                                                    }
+                                                    if let onDelete = onDelete {
+                                                        Button(role: .destructive) {
+                                                            Task { await onDelete(expense) }
+                                                        } label: {
+                                                            Label("Delete", systemImage: "trash")
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -1338,6 +1406,8 @@ struct AllTransactionsView: View {
     @Environment(\.dismiss) var dismiss
     let transactions: [Expense]
     let currencyCode: String?
+    var onDelete: ((Expense) async -> Void)? = nil
+    var onEdit: ((Expense) -> Void)? = nil
     
     private func category(for categoryID: String) -> Category? {
         let normalized = categoryID.trimmingCharacters(in: .whitespaces)
@@ -1359,20 +1429,45 @@ struct AllTransactionsView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    ScrollView(showsIndicators: true) {
-                        LazyVStack(spacing: 12) {
-                            ForEach(transactions) { expense in
-                                TransactionCard(
-                                    expense: expense,
-                                    category: category(for: expense.categoryID),
-                                    currencyCode: currencyCode
-                                )
+                    List {
+                        ForEach(transactions) { expense in
+                            TransactionCard(
+                                expense: expense,
+                                category: category(for: expense.categoryID),
+                                currencyCode: currencyCode
+                            )
+                            .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                if let onDelete = onDelete {
+                                    Button(role: .destructive) {
+                                        Task { await onDelete(expense) }
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                }
+                            }
+                            .contextMenu {
+                                if let onEdit = onEdit {
+                                    Button {
+                                        onEdit(expense)
+                                    } label: {
+                                        Label("Edit", systemImage: "pencil")
+                                    }
+                                }
+                                if let onDelete = onDelete {
+                                    Button(role: .destructive) {
+                                        Task { await onDelete(expense) }
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                }
                             }
                         }
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 16)
-                        .padding(.bottom, 40)
                     }
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
                 }
             }
             .background(Color(.systemGroupedBackground))
@@ -1435,6 +1530,8 @@ struct ShimmerView: View {
 // MARK: - Add Expense View
 struct AddExpenseView: View {
     @Binding var expenses: [Expense]
+    var existingExpense: Expense? = nil
+    var onSaveComplete: (() -> Void)? = nil
     @StateObject private var userSession = UserSession.shared
     @Environment(\.dismiss) var dismiss
     @Environment(\.colorScheme) var colorScheme
@@ -1447,6 +1544,8 @@ struct AddExpenseView: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
     @State private var showErrorAlert = false
+    
+    private var isEditMode: Bool { existingExpense != nil }
     
     var body: some View {
         NavigationStack {
@@ -1642,7 +1741,7 @@ struct AddExpenseView: View {
                                     ProgressView()
                                         .progressViewStyle(CircularProgressViewStyle(tint: .white))
                                 } else {
-                                    Text("Add Transaction")
+                                    Text(isEditMode ? "Save Changes" : "Add Transaction")
                                         .font(.system(size: 17, weight: .semibold))
                                 }
                             }
@@ -1669,7 +1768,7 @@ struct AddExpenseView: View {
                 }
                 .scrollIndicators(.hidden)
             }
-            .navigationTitle("New Transaction")
+            .navigationTitle(isEditMode ? "Edit Transaction" : "New Transaction")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -1680,7 +1779,14 @@ struct AddExpenseView: View {
                 }
             }
             .onAppear {
-                if selectedCategory == nil, let first = userSession.categories.first {
+                if let existing = existingExpense {
+                    descriptionText = existing.title
+                    amount = String(format: "%.2f", existing.amount)
+                    selectedType = existing.type
+                    selectedDate = existing.date
+                    paymentMethod = existing.paymentMethod ?? ""
+                    selectedCategory = userSession.categories.first { $0.id.trimmingCharacters(in: .whitespaces) == existing.categoryID.trimmingCharacters(in: .whitespaces) }
+                } else if selectedCategory == nil, let first = userSession.categories.first {
                     selectedCategory = first
                 }
             }
@@ -1730,28 +1836,44 @@ struct AddExpenseView: View {
         errorMessage = nil
         
         do {
-            let recordId = try await FileMakerService.shared.createExpense(
-                userID: user.userID,
-                date: selectedDate,
-                amount: amountValue,
-                categoryID: category.id,
-                paymentMethod: payment,
-                description: desc,
-                type: selectedType
-            )
-            let newExpense = Expense(
-                id: recordId,
-                title: desc,
-                amount: amountValue,
-                categoryID: category.id,
-                date: selectedDate,
-                type: selectedType,
-                paymentMethod: payment,
-                notes: nil
-            )
-            await MainActor.run {
-                expenses.append(newExpense)
-                dismiss()
+            if let existing = existingExpense {
+                try await FileMakerService.shared.updateExpense(
+                    recordId: existing.id,
+                    date: selectedDate,
+                    amount: amountValue,
+                    categoryID: category.id,
+                    paymentMethod: payment,
+                    description: desc,
+                    type: selectedType
+                )
+                await MainActor.run {
+                    onSaveComplete?()
+                    dismiss()
+                }
+            } else {
+                let recordId = try await FileMakerService.shared.createExpense(
+                    userID: user.userID,
+                    date: selectedDate,
+                    amount: amountValue,
+                    categoryID: category.id,
+                    paymentMethod: payment,
+                    description: desc,
+                    type: selectedType
+                )
+                let newExpense = Expense(
+                    id: recordId,
+                    title: desc,
+                    amount: amountValue,
+                    categoryID: category.id,
+                    date: selectedDate,
+                    type: selectedType,
+                    paymentMethod: payment,
+                    notes: nil
+                )
+                await MainActor.run {
+                    expenses.append(newExpense)
+                    dismiss()
+                }
             }
         } catch {
             await MainActor.run {

@@ -15,6 +15,9 @@ struct SearchView: View {
     @State private var typeFilter: SearchTypeFilter = .all
     @State private var sortOption: SearchSortOption = .dateNewest
     @State private var showSortMenu = false
+    @State private var expenseToEdit: Expense?
+    @State private var deleteError: String?
+    @State private var showDeleteError = false
     
     enum SearchTypeFilter: String, CaseIterable {
         case all = "All"
@@ -170,6 +173,20 @@ struct SearchView: View {
             }
             .task {
                 await loadExpenses()
+            }
+            .sheet(item: $expenseToEdit) { expense in
+                AddExpenseView(
+                    expenses: Binding(get: { expenses }, set: { expenses = $0 }),
+                    existingExpense: expense,
+                    onSaveComplete: { Task { await loadExpenses() } }
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            }
+            .alert("Delete Error", isPresented: $showDeleteError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(deleteError ?? "Failed to delete transaction")
             }
         }
     }
@@ -388,6 +405,18 @@ struct SearchView: View {
                                         category: category(for: expense.categoryID),
                                         currencyCode: userSession.currentUser?.currency
                                     )
+                                    .contextMenu {
+                                        Button {
+                                            expenseToEdit = expense
+                                        } label: {
+                                            Label("Edit", systemImage: "pencil")
+                                        }
+                                        Button(role: .destructive) {
+                                            Task { await deleteExpense(expense) }
+                                        } label: {
+                                            Label("Delete", systemImage: "trash")
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -409,6 +438,19 @@ struct SearchView: View {
             print("❌ Failed to load expenses for search: \(error.localizedDescription)")
         }
         isLoadingExpenses = false
+    }
+    
+    private func deleteExpense(_ expense: Expense) async {
+        deleteError = nil
+        do {
+            try await FileMakerService.shared.deleteExpense(recordId: expense.id)
+            await loadExpenses()
+        } catch {
+            await MainActor.run {
+                deleteError = error.localizedDescription
+                showDeleteError = true
+            }
+        }
     }
 }
 
