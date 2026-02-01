@@ -46,7 +46,29 @@ struct HomeView: View {
         return userSession.categories.first { $0.id.trimmingCharacters(in: .whitespaces) == normalized }
     }
     
-    // MARK: - Period date range (used for filtering; Month/Year use selectedYear/selectedMonth)
+    /// User's configured pay day (1-28), or nil for calendar month
+    private var userPayDay: Int? {
+        userSession.currentUser?.payDay
+    }
+    
+    /// The (year, month) that identifies the pay cycle containing today.
+    private var currentPayCycleYearMonth: (year: Int, month: Int)? {
+        guard let payDay = userPayDay else { return nil }
+        let calendar = Calendar.current
+        let now = Date()
+        let dayOfMonth = calendar.component(.day, from: now)
+        let month = calendar.component(.month, from: now)
+        let year = calendar.component(.year, from: now)
+        if dayOfMonth >= payDay {
+            return (year, month)
+        }
+        if month == 1 {
+            return (year - 1, 12)
+        }
+        return (year, month - 1)
+    }
+    
+    // MARK: - Period date range (used for filtering; Month/Year use selectedYear/selectedMonth; Month uses pay cycles when pay day set)
     private var periodStart: Date {
         let calendar = Calendar.current
         let now = Date()
@@ -55,6 +77,9 @@ struct HomeView: View {
         case .week:
             return calendar.date(byAdding: .day, value: -6, to: startOfToday) ?? startOfToday
         case .month:
+            if let payDay = userPayDay {
+                return payCycleStart(year: selectedYear, month: selectedMonth, payDay: payDay)
+            }
             guard let monthStart = calendar.date(from: DateComponents(year: selectedYear, month: selectedMonth, day: 1)) else { return startOfToday }
             return monthStart
         case .year:
@@ -70,6 +95,9 @@ struct HomeView: View {
         case .week:
             return calendar.date(byAdding: .day, value: 1, to: startOfToday)?.addingTimeInterval(-1) ?? now
         case .month:
+            if let payDay = userPayDay {
+                return payCycleEnd(year: selectedYear, month: selectedMonth, payDay: payDay)
+            }
             guard let monthStart = calendar.date(from: DateComponents(year: selectedYear, month: selectedMonth, day: 1)),
                   let nextMonth = calendar.date(byAdding: .month, value: 1, to: monthStart),
                   let lastDayOfMonth = calendar.date(byAdding: .day, value: -1, to: nextMonth) else { return now }
@@ -78,6 +106,22 @@ struct HomeView: View {
             guard let endOfYear = calendar.date(from: DateComponents(year: selectedYear, month: 12, day: 31)) else { return now }
             return calendar.date(bySettingHour: 23, minute: 59, second: 59, of: endOfYear) ?? now
         }
+    }
+    
+    private func payCycleStart(year: Int, month: Int, payDay: Int) -> Date {
+        let calendar = Calendar.current
+        guard let date = calendar.date(from: DateComponents(year: year, month: month, day: payDay)) else { return Date() }
+        return calendar.startOfDay(for: date)
+    }
+    
+    private func payCycleEnd(year: Int, month: Int, payDay: Int) -> Date {
+        let calendar = Calendar.current
+        var nextYear = year
+        var nextMonth = month + 1
+        if nextMonth > 12 { nextMonth = 1; nextYear += 1 }
+        let endDay = payDay == 1 ? 28 : payDay - 1
+        guard let endDate = calendar.date(from: DateComponents(year: nextYear, month: nextMonth, day: endDay)) else { return Date() }
+        return calendar.date(bySettingHour: 23, minute: 59, second: 59, of: endDate) ?? endDate
     }
     
     /// Expenses within the selected period (Week / Month / Year)
@@ -106,9 +150,27 @@ struct HomeView: View {
         totalIncome - totalExpenses
     }
     
-    /// True when expense limit is set, period matches, and user is over the limit
+    /// True when viewing the current period (current week, current month/pay cycle, or current year)
+    private var isViewingCurrentPeriod: Bool {
+        let calendar = Calendar.current
+        let now = Date()
+        switch selectedPeriod {
+        case .week:
+            return true // Week is always "last 7 days" (current)
+        case .month:
+            if let cycle = currentPayCycleYearMonth {
+                return selectedYear == cycle.year && selectedMonth == cycle.month
+            }
+            return selectedYear == calendar.component(.year, from: now) && selectedMonth == calendar.component(.month, from: now)
+        case .year:
+            return selectedYear == calendar.component(.year, from: now)
+        }
+    }
+    
+    /// True when expense limit is set, period matches, user is over the limit, and viewing current period
     private var isOverExpenseLimit: Bool {
-        guard let user = userSession.currentUser,
+        guard isViewingCurrentPeriod,
+              let user = userSession.currentUser,
               let limitType = user.expenseLimitType,
               let limitValue = user.expenseLimitValue,
               let limitPeriod = user.expenseLimitPeriod,
@@ -120,13 +182,57 @@ struct HomeView: View {
         case .year: periodMatches = (limitPeriod == "year")
         }
         guard periodMatches else { return false }
+        // Small tolerance so "at limit" doesn't trigger (floating-point + rounding)
+        let percentEpsilon = 0.005  // 0.005% for percentage
+        let amountEpsilon = 0.005   // ~half cent for amount
         if limitType == "percentage" {
             guard totalIncome > 0 else { return false }
             let percent = (totalExpenses / totalIncome) * 100
-            return percent >= limitValue
+            return percent > limitValue + percentEpsilon
         } else {
-            return totalExpenses >= limitValue
+            return totalExpenses > limitValue + amountEpsilon
         }
+    }
+    
+    /// Expense limit progress for the current period (when limit is set and period matches). nil otherwise.
+    private var expenseLimitProgressInfo: (progress: Double, limitAmount: Double, limitType: String)? {
+        guard isViewingCurrentPeriod,
+              let user = userSession.currentUser,
+              let limitType = user.expenseLimitType,
+              let limitValue = user.expenseLimitValue,
+              let limitPeriod = user.expenseLimitPeriod,
+              limitValue > 0 else { return nil }
+        let periodMatches: Bool
+        switch selectedPeriod {
+        case .week: periodMatches = (limitPeriod == "week")
+        case .month: periodMatches = (limitPeriod == "month")
+        case .year: periodMatches = (limitPeriod == "year")
+        }
+        guard periodMatches else { return nil }
+        if limitType == "percentage" {
+            guard totalIncome > 0 else { return nil }
+            let limitAmount = totalIncome * limitValue / 100
+            let progress = limitAmount > 0 ? totalExpenses / limitAmount : 0
+            return (progress, limitAmount, "percentage")
+        } else {
+            let progress = limitValue > 0 ? totalExpenses / limitValue : 0
+            return (progress, limitValue, "amount")
+        }
+    }
+    
+    private func expenseLimitProgressColor(_ progress: Double) -> Color {
+        if progress >= 1 { return .red }
+        if progress >= 0.9 { return .orange }
+        if progress >= 0.5 { return .yellow }
+        return .green
+    }
+    
+    private func expenseLimitProgressLabel(_ info: (progress: Double, limitAmount: Double, limitType: String)) -> String {
+        let pct = info.progress * 100
+        if info.limitType == "percentage" {
+            return String(format: "%.0f%% of income limit", pct)
+        }
+        return String(format: "%.0f%% of \(UserSession.formatCurrency(amount: info.limitAmount, currencyCode: userSession.currentUser?.currency)) limit", pct)
     }
     
     private var expenseLimitBannerMessage: String {
@@ -134,7 +240,10 @@ struct HomeView: View {
               let limitType = user.expenseLimitType,
               let limitValue = user.expenseLimitValue,
               let limitPeriod = user.expenseLimitPeriod else { return "" }
-        let periodLabel = limitPeriod == "week" ? "this week" : (limitPeriod == "month" ? "this month" : "this year")
+        let periodLabel: String
+        if limitPeriod == "week" { periodLabel = "this week" }
+        else if limitPeriod == "month" { periodLabel = userPayDay != nil ? "this pay cycle" : "this month" }
+        else { periodLabel = "this year" }
         if limitType == "percentage" {
             let actual = totalIncome > 0 ? (totalExpenses / totalIncome) * 100 : 0
             return "You've spent \(String(format: "%.0f", actual))% of your income \(periodLabel) — over your \(Int(limitValue))% limit."
@@ -179,7 +288,7 @@ struct HomeView: View {
                 return (formatter.string(from: day), dayTotal)
             }
         case .month:
-            guard let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: Date())),
+            guard let monthStart = calendar.date(from: DateComponents(year: selectedYear, month: selectedMonth, day: 1)),
                   let nextMonth = calendar.date(byAdding: .month, value: 1, to: monthStart),
                   let lastDay = calendar.date(byAdding: .day, value: -1, to: nextMonth) else {
                 return []
@@ -199,9 +308,8 @@ struct HomeView: View {
             }
         case .year:
             formatter.dateFormat = "MMM"
-            let year = calendar.component(.year, from: Date())
             return (1...12).map { month in
-                guard let monthStart = calendar.date(from: DateComponents(year: year, month: month, day: 1)),
+                guard let monthStart = calendar.date(from: DateComponents(year: selectedYear, month: month, day: 1)),
                       let monthEnd = calendar.date(byAdding: .day, value: -1, to: calendar.date(byAdding: .month, value: 1, to: monthStart)!) else {
                     return ("", 0.0)
                 }
@@ -227,14 +335,24 @@ struct HomeView: View {
     private var spendingChartInitialSelectedIndex: Int {
         let calendar = Calendar.current
         let now = Date()
+        let currentYear = calendar.component(.year, from: now)
+        let currentMonth = calendar.component(.month, from: now)
         switch selectedPeriod {
         case .week:
             return 6 // Today is the 7th day (index 6)
         case .month:
-            let dayOfMonth = calendar.component(.day, from: now)
-            return min(3, (dayOfMonth - 1) / 7) // W1=0, W2=1, W3=2, W4=3
+            // Use current week only when viewing the current month; otherwise default to last week
+            if selectedYear == currentYear && selectedMonth == currentMonth {
+                let dayOfMonth = calendar.component(.day, from: now)
+                return min(3, (dayOfMonth - 1) / 7) // W1=0, W2=1, W3=2, W4=3
+            }
+            return 3 // Past/future month: default to last week (W4)
         case .year:
-            return calendar.component(.month, from: now) - 1 // Jan=0 .. Dec=11
+            // Use current month only when viewing the current year; otherwise default to last month
+            if selectedYear == currentYear {
+                return calendar.component(.month, from: now) - 1
+            }
+            return 11 // Past/future year: default to December
         }
     }
     
@@ -383,6 +501,12 @@ struct HomeView: View {
             }
             .task {
                 await loadExpenses()
+            }
+            .onAppear {
+                if selectedPeriod == .month, let cycle = currentPayCycleYearMonth {
+                    selectedYear = cycle.year
+                    selectedMonth = cycle.month
+                }
             }
         }
     }
@@ -545,6 +669,17 @@ struct HomeView: View {
         }
     }
     
+    /// Time-of-day greeting: morning (5am–12pm), afternoon (12pm–5pm), evening (5pm–12am), night (12am–5am)
+    private var greetingText: String {
+        let hour = Calendar.current.component(.hour, from: Date())
+        switch hour {
+        case 5..<12: return "Good morning,"
+        case 12..<17: return "Good afternoon,"
+        case 17..<21: return "Good evening,"
+        default: return "Good evening," // 0–4 and 21–23
+        }
+    }
+    
     // MARK: - Header Section
     private var headerSection: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -552,7 +687,7 @@ struct HomeView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     if let user = userSession.currentUser {
-                        Text("Good morning,")
+                        Text(greetingText)
                             .font(.system(size: 15, weight: .medium))
                             .foregroundStyle(.secondary)
                         
@@ -594,8 +729,13 @@ struct HomeView: View {
                             selectedPeriod = period
                             let now = Date()
                             let cal = Calendar.current
-                            selectedYear = cal.component(.year, from: now)
-                            selectedMonth = cal.component(.month, from: now)
+                            if period == .month, let cycle = currentPayCycleYearMonth {
+                                selectedYear = cycle.year
+                                selectedMonth = cycle.month
+                            } else {
+                                selectedYear = cal.component(.year, from: now)
+                                selectedMonth = cal.component(.month, from: now)
+                            }
                         }
                     } label: {
                         Text(period.rawValue)
@@ -706,8 +846,13 @@ struct HomeView: View {
         }
     }
     
-    /// Header label: month name for selected period (Month view) or current (Week)
+    /// Header label: month name or pay cycle range for selected period (Month view)
     private var periodHeaderMonth: String {
+        if userPayDay != nil {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "MMM d"
+            return "\(formatter.string(from: periodStart)) – \(formatter.string(from: periodEnd))"
+        }
         let formatter = DateFormatter()
         formatter.dateFormat = "MMMM"
         guard let d = Calendar.current.date(from: DateComponents(year: selectedYear, month: selectedMonth, day: 1)) else { return formatter.string(from: Date()) }
@@ -718,9 +863,21 @@ struct HomeView: View {
         "\(selectedYear)"
     }
     
-    /// Label for period nav row: "November 2025" for Month
+    /// Label for period nav row: "November 2025" or "Jan 21 – Feb 20, 2026" for Month
     private var periodMonthYearLabel: String {
-        "\(periodHeaderMonth) \(selectedYear)"
+        if userPayDay != nil {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "MMM d"
+            let cal = Calendar.current
+            let endYear = cal.component(.year, from: periodEnd)
+            let startYear = cal.component(.year, from: periodStart)
+            if startYear == endYear {
+                return "\(formatter.string(from: periodStart)) – \(formatter.string(from: periodEnd)), \(startYear)"
+            }
+            formatter.dateFormat = "MMM d, yyyy"
+            return "\(formatter.string(from: periodStart)) – \(formatter.string(from: periodEnd))"
+        }
+        return "\(periodHeaderMonth) \(selectedYear)"
     }
     
     @Namespace private var namespace
@@ -741,8 +898,9 @@ struct HomeView: View {
                     Text(UserSession.formatCurrency(amount: totalIncome, currencyCode: userSession.currentUser?.currency))
                         .font(.system(size: 16, weight: .regular, design: .rounded))
                         .foregroundStyle(.primary)
+                    Spacer(minLength: 0)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .padding(20)
                 .background(
                     RoundedRectangle(cornerRadius: 20)
@@ -761,8 +919,28 @@ struct HomeView: View {
                     Text(UserSession.formatCurrency(amount: totalExpenses, currencyCode: userSession.currentUser?.currency))
                         .font(.system(size: 16, weight: .regular, design: .rounded))
                         .foregroundStyle(.primary)
+                    
+                    if let limitInfo = expenseLimitProgressInfo {
+                        VStack(alignment: .leading, spacing: 6) {
+                            GeometryReader { geo in
+                                ZStack(alignment: .leading) {
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(Color.primary.opacity(0.1))
+                                        .frame(height: 6)
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(expenseLimitProgressColor(limitInfo.progress))
+                                        .frame(width: min(CGFloat(limitInfo.progress), 1) * geo.size.width, height: 6)
+                                }
+                            }
+                            .frame(height: 6)
+                            Text(expenseLimitProgressLabel(limitInfo))
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer(minLength: 0)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .padding(20)
                 .background(
                     RoundedRectangle(cornerRadius: 20)

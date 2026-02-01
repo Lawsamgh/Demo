@@ -880,10 +880,12 @@ struct SpendingDonutChartView: View {
             
             VStack(spacing: 2) {
                 Text(formatCenterPercentage)
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
                     .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.65)
                 Text(displayMetric.label)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
@@ -900,12 +902,12 @@ struct SpendingDonutChartView: View {
             return "—"
         }
         
-        // Format the percentage based on value
+        // Format the percentage with 2 decimal places
         let percentage = metric.percentage
         if percentage >= 100 {
-            return String(format: "%.0f%%", percentage)
+            return String(format: "%.2f%%", percentage)
         }
-        return String(format: "%.1f%%", percentage)
+        return String(format: "%.2f%%", percentage)
     }
     
     private func percentageForItem(_ amount: Double) -> Double {

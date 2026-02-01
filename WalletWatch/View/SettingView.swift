@@ -642,6 +642,7 @@ struct CurrencyPickerSheet: View {
     let onSelect: (String) -> Void
     let onDismiss: () -> Void
     @Environment(\.dismiss) var dismiss
+    @Environment(\.colorScheme) var colorScheme
     
     @State private var searchText = ""
     
@@ -655,68 +656,43 @@ struct CurrencyPickerSheet: View {
     
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    ForEach(filteredCurrencies, id: \.code) { option in
-                        Button {
-                            guard !isSaving else { return }
-                            let impactFeedback = UIImpactFeedbackGenerator(style: .light)
-                            impactFeedback.impactOccurred()
-                            onSelect(option.code)
-                        } label: {
-                            HStack(spacing: 12) {
-                                Text(option.code)
-                                    .font(.system(size: 17, weight: .regular))
-                                    .foregroundStyle(.primary)
-                                    .frame(width: 44, alignment: .leading)
-                                
-                                Text(option.name)
-                                    .font(.system(size: 17, weight: .regular))
-                                    .foregroundStyle(.primary)
-                                
-                                Spacer(minLength: 8)
-                                
-                                if currentCurrency == option.code {
-                                    Image(systemName: "checkmark")
-                                        .font(.system(size: 16, weight: .semibold))
-                                        .foregroundStyle(.blue)
-                                }
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .disabled(isSaving)
-                    }
-                } header: {
-                    Text("Currencies")
-                } footer: {
-                    Text("Used for amounts and display throughout the app.")
-                }
+            ZStack {
+                Color(.systemGroupedBackground)
+                    .ignoresSafeArea()
                 
                 if filteredCurrencies.isEmpty && !searchText.isEmpty {
-                    Section {
-                        HStack {
-                            Spacer()
-                            VStack(spacing: 8) {
-                                Image(systemName: "magnifyingglass")
-                                    .font(.system(size: 28))
-                                    .foregroundStyle(.tertiary)
-                                Text("No currencies match \"\(searchText)\"")
-                                    .font(.system(size: 15))
-                                    .foregroundStyle(.secondary)
-                                    .multilineTextAlignment(.center)
+                    emptySearchView
+                } else {
+                    List {
+                        Section {
+                            ForEach(filteredCurrencies, id: \.code) { option in
+                                CurrencyRow(
+                                    code: option.code,
+                                    name: option.name,
+                                    isSelected: currentCurrency == option.code,
+                                    isDisabled: isSaving
+                                ) {
+                                    guard !isSaving else { return }
+                                    let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+                                    impactFeedback.impactOccurred()
+                                    onSelect(option.code)
+                                }
                             }
-                            .padding(.vertical, 24)
-                            Spacer()
+                        } header: {
+                            Text("Currencies")
+                                .font(.system(size: 13, weight: .semibold))
+                        } footer: {
+                            Text("Used for amounts and display throughout the app.")
+                                .font(.system(size: 13))
                         }
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
                     }
+                    .listStyle(.insetGrouped)
+                    .scrollContentBackground(.hidden)
                 }
             }
-            .listStyle(.insetGrouped)
             .navigationTitle("Currency")
             .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search currencies")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -738,6 +714,82 @@ struct CurrencyPickerSheet: View {
                 }
             }
         }
+    }
+    
+    private var emptySearchView: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 48, weight: .light))
+                .foregroundStyle(.tertiary)
+            Text("No results for \"\(searchText)\"")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(.primary)
+            Text("Try a different search term")
+                .font(.system(size: 15))
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+private struct CurrencyRow: View {
+    let code: String
+    let name: String
+    let isSelected: Bool
+    let isDisabled: Bool
+    let action: () -> Void
+    
+    @Environment(\.colorScheme) var colorScheme
+    
+    private var symbol: String {
+        UserSession.currencySymbol(for: code)
+    }
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(symbolBackgroundColor)
+                        .frame(width: 44, height: 44)
+                    Text(symbol.isEmpty ? String(code.prefix(1)) : symbol)
+                        .font(.system(size: symbol.isEmpty ? 16 : 18, weight: .semibold))
+                        .foregroundStyle(symbolForegroundColor)
+                }
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(code)
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(.primary)
+                    Text(name)
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                }
+                
+                Spacer(minLength: 8)
+                
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundStyle(.blue)
+                }
+            }
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .disabled(isDisabled)
+    }
+    
+    private var symbolBackgroundColor: Color {
+        colorScheme == .dark
+            ? Color.blue.opacity(0.25)
+            : Color.blue.opacity(0.12)
+    }
+    
+    private var symbolForegroundColor: Color {
+        colorScheme == .dark ? .white : .primary
     }
 }
 
