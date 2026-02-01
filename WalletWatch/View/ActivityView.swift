@@ -305,52 +305,43 @@ struct ActivityView: View {
     }
     
     private var summarySection: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Income")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
-                Text(UserSession.formatCurrency(amount: totalIncome, currencyCode: userSession.currentUser?.currency))
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color.green)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Color(.secondarySystemGroupedBackground))
+        HStack(alignment: .top, spacing: 12) {
+            summaryCard(
+                title: "Income",
+                amount: totalIncome,
+                color: Color.green
             )
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Expenses")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
-                Text(UserSession.formatCurrency(amount: totalExpenses, currencyCode: userSession.currentUser?.currency))
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color.red)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Color(.secondarySystemGroupedBackground))
+            summaryCard(
+                title: "Expenses",
+                amount: totalExpenses,
+                color: Color.red
             )
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Balance")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
-                Text(UserSession.formatCurrency(amount: balance, currencyCode: userSession.currentUser?.currency))
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(balance >= 0 ? .primary : Color.red)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Color(.secondarySystemGroupedBackground))
+            summaryCard(
+                title: "Balance",
+                amount: balance,
+                color: balance >= 0 ? .primary : Color.red
             )
         }
+    }
+    
+    private func summaryCard(title: String, amount: Double, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+            Text(UserSession.formatCurrency(amount: amount, currencyCode: userSession.currentUser?.currency))
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(color)
+                .lineLimit(2)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: 72)
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
     }
     
     private var categoryBreakdownSection: some View {

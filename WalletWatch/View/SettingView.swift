@@ -50,6 +50,11 @@ struct SettingView: View {
     @State private var isSavingExpenseLimit = false
     @State private var expenseLimitError: String?
     @State private var showExpenseLimitError = false
+    @State private var showAbout = false
+    @State private var showDeleteAccountAlert = false
+    @State private var isDeletingAccount = false
+    @State private var deleteAccountError: String?
+    @State private var showDeleteAccountError = false
     
     var body: some View {
         NavigationStack {
@@ -73,6 +78,9 @@ struct SettingView: View {
                         
                         // Logout Button
                         logoutButton
+                        
+                        // Delete Account
+                        deleteAccountButton
                         
                         // Version Info
                         versionInfo
@@ -161,6 +169,54 @@ struct SettingView: View {
         } message: {
             Text(expenseLimitError ?? "Failed to save expense limit")
         }
+        .sheet(isPresented: $showAbout) {
+            AboutView()
+        }
+        .alert("Delete Account", isPresented: $showDeleteAccountAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete Account", role: .destructive) {
+                Task { await deleteAccount() }
+            }
+        } message: {
+            Text("Are you sure you want to permanently delete your account? All your expenses, categories, and data will be removed. This cannot be undone.")
+        }
+        .alert("Delete Account Error", isPresented: $showDeleteAccountError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(deleteAccountError ?? "Failed to delete account")
+        }
+        .overlay {
+            if isDeletingAccount {
+                ZStack {
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea()
+                    VStack(spacing: 16) {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .scaleEffect(1.2)
+                        Text("Deleting account...")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(.white)
+                    }
+                }
+            }
+        }
+        .allowsHitTesting(!isDeletingAccount)
+    }
+    
+    private func deleteAccount() async {
+        guard let _ = userSession.currentUser else { return }
+        isDeletingAccount = true
+        deleteAccountError = nil
+        do {
+            try await userSession.deleteAccount()
+        } catch {
+            await MainActor.run {
+                deleteAccountError = error.localizedDescription
+                showDeleteAccountError = true
+            }
+        }
+        isDeletingAccount = false
     }
     
     private func saveTheme(_ theme: String) async {
@@ -404,7 +460,9 @@ struct SettingView: View {
                     color: .gray,
                     iconBackground: Color.gray.opacity(0.15)
                 ) {
-                    // Handle about
+                    let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+                    impactFeedback.impactOccurred()
+                    showAbout = true
                 }
             }
             .background(
@@ -436,6 +494,42 @@ struct SettingView: View {
                 Text("Sign Out")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.red)
+                
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color(.secondarySystemGroupedBackground))
+                    .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
+            )
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 4)
+    }
+    
+    // MARK: - Delete Account Button
+    private var deleteAccountButton: some View {
+        Button(action: {
+            let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+            impactFeedback.impactOccurred()
+            showDeleteAccountAlert = true
+        }) {
+            HStack(spacing: 14) {
+                ZStack {
+                    Circle()
+                        .fill(Color.orange.opacity(0.15))
+                        .frame(width: 36, height: 36)
+                    
+                    Image(systemName: "person.crop.circle.badge.minus")
+                        .font(.system(size: 18))
+                        .foregroundStyle(.orange)
+                }
+                
+                Text("Delete Account")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.orange)
                 
                 Spacer()
             }
@@ -1062,6 +1156,249 @@ struct ExpenseLimitSheet: View {
                         dismiss()
                     }
                 }
+            }
+        }
+    }
+}
+
+// MARK: - About View
+struct AboutView: View {
+    @Environment(\.dismiss) var dismiss
+    @Environment(\.colorScheme) var colorScheme
+    
+    private var appVersion: String {
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.0"
+    }
+    
+    private var buildNumber: String {
+        (Bundle.main.infoDictionary?["CFBundleVersion"] as? String) ?? "1"
+    }
+    
+    /// Acknowledgement entry: icon (SF Symbol), name, detail, optional URL.
+    struct AcknowledgementItem {
+        let icon: String
+        let name: String
+        let detail: String
+        let url: String?
+    }
+    
+    static let acknowledgements: [AcknowledgementItem] = [
+        AcknowledgementItem(
+            icon: "server.rack",
+            name: "FileMaker",
+            detail: "Backend database, API, and authentication",
+            url: "https://www.claris.com/filemaker/"
+        ),
+        AcknowledgementItem(
+            icon: "swift",
+            name: "SwiftUI",
+            detail: "Declarative UI framework by Apple",
+            url: "https://developer.apple.com/xcode/swiftui/"
+        ),
+        AcknowledgementItem(
+            icon: "link",
+            name: "Combine",
+            detail: "Reactive programming framework by Apple",
+            url: "https://developer.apple.com/documentation/combine"
+        ),
+        AcknowledgementItem(
+            icon: "apple.logo",
+            name: "Apple",
+            detail: "iOS, Xcode, and system frameworks",
+            url: nil
+        ),
+    ]
+    
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color(.systemGroupedBackground)
+                    .ignoresSafeArea()
+                
+                ScrollView {
+                    VStack(spacing: 24) {
+                        // App header
+                        VStack(spacing: 12) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 22)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [
+                                                Color(red: 0.4, green: 0.6, blue: 1.0),
+                                                Color(red: 0.6, green: 0.4, blue: 1.0)
+                                            ],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
+                                    .frame(width: 80, height: 80)
+                                    .shadow(color: .blue.opacity(0.3), radius: 8, x: 0, y: 4)
+                                
+                                Image(systemName: "dollarsign.circle.fill")
+                                    .font(.system(size: 40))
+                                    .foregroundStyle(.white)
+                            }
+                            Text("WalletWatch")
+                                .font(.system(size: 24, weight: .bold))
+                                .foregroundStyle(.primary)
+                            Text("Version \(appVersion) (\(buildNumber))")
+                                .font(.system(size: 14))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.top, 20)
+                        .padding(.bottom, 8)
+                        
+                        // Developer & company
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Developer & Company")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 4)
+                            
+                            VStack(spacing: 0) {
+                                AboutRow(label: "Developer", value: "Lawsam")
+                                Divider().padding(.leading, 16)
+                                AboutRow(label: "Company", value: "U&I Tech Solution")
+                                Divider().padding(.leading, 16)
+                                AboutRow(label: "Contact", value: "uanditech.solution@gmail.com", isLink: true)
+                            }
+                            .background(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .fill(Color(.secondarySystemGroupedBackground))
+                            )
+                        }
+                        
+                        // Acknowledgements
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "heart.text.square.fill")
+                                    .font(.system(size: 16))
+                                    .foregroundStyle(.secondary)
+                                Text("Acknowledgements")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(.primary)
+                            }
+                            .padding(.horizontal, 4)
+                            
+                            Text("Built with these technologies and services. Thank you to the developers and communities behind them.")
+                                .font(.system(size: 14))
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.horizontal, 4)
+                            
+                            VStack(spacing: 0) {
+                                ForEach(Array(AboutView.acknowledgements.enumerated()), id: \.offset) { index, item in
+                                    if index > 0 {
+                                        Divider()
+                                            .padding(.leading, 56)
+                                    }
+                                    AcknowledgementRow(
+                                        icon: item.icon,
+                                        name: item.name,
+                                        detail: item.detail,
+                                        url: item.url
+                                    )
+                                }
+                            }
+                            .background(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .fill(Color(.secondarySystemGroupedBackground))
+                                    .shadow(color: .black.opacity(0.04), radius: 6, x: 0, y: 2)
+                            )
+                        }
+                        
+                        Spacer(minLength: 32)
+                    }
+                    .padding(.horizontal, 16)
+                }
+            }
+            .navigationTitle("About")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct AboutRow: View {
+    let label: String
+    let value: String
+    var isLink: Bool = false
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(label)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 80, alignment: .leading)
+            if isLink {
+                Link(value, destination: URL(string: "mailto:\(value)")!)
+                    .font(.system(size: 15))
+                    .foregroundStyle(.blue)
+                    .lineLimit(1)
+            } else {
+                Text(value)
+                    .font(.system(size: 15))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+}
+
+private struct AcknowledgementRow: View {
+    let icon: String
+    let name: String
+    let detail: String
+    var url: String? = nil
+    
+    var body: some View {
+        Group {
+            if let urlString = url, let linkURL = URL(string: urlString) {
+                Link(destination: linkURL) {
+                    rowContent
+                }
+                .buttonStyle(.plain)
+            } else {
+                rowContent
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+    }
+    
+    private var rowContent: some View {
+        HStack(alignment: .center, spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color.accentColor.opacity(0.12))
+                    .frame(width: 40, height: 40)
+                Image(systemName: icon)
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(Color.accentColor)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.primary)
+                Text(detail)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if url != nil {
+                Image(systemName: "arrow.up.right.square")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.tertiary)
             }
         }
     }

@@ -28,10 +28,11 @@ class UserSession: ObservableObject {
     func login(user: User) {
         self.currentUser = user
         self.isLoggedIn = true
+        self.isLoadingCategories = true
         saveUserToDefaults(user)
         print("✅ User logged in: \(user.fullName)")
         
-        // Fetch categories after login
+        // Fetch categories after login (must complete before we can decide onboarding vs home)
         Task {
             await fetchCategories()
         }
@@ -157,6 +158,15 @@ class UserSession: ObservableObject {
         Task {
             await FileMakerService.shared.logout()
         }
+    }
+    
+    /// Deletes the current user's account and all associated data, then logs out
+    func deleteAccount() async throws {
+        guard let user = currentUser else {
+            throw FileMakerError.userNotFound
+        }
+        try await FileMakerService.shared.deleteUser(userID: user.userID)
+        logout()
     }
     
     // MARK: - UserDefaults Persistence

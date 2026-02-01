@@ -323,7 +323,8 @@ struct HomeView: View {
                     }
                 }
             }
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Dashboard")
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
@@ -1541,10 +1542,10 @@ struct AddExpenseView: View {
                                                 // Colored icon circle — high contrast so icon is always visible
                                                 ZStack {
                                                     Circle()
-                                                        .fill(Color(category.displayColor).opacity(isSelected ? 0.9 : 0.22))
+                                                        .fill(colorFromString(category.displayColor).opacity(isSelected ? 0.9 : 0.22))
                                                         .frame(width: 44, height: 44)
                                                     Circle()
-                                                        .stroke(Color(category.displayColor).opacity(isSelected ? 0 : 0.4), lineWidth: 1.5)
+                                                        .stroke(colorFromString(category.displayColor).opacity(isSelected ? 0 : 0.4), lineWidth: 1.5)
                                                         .frame(width: 44, height: 44)
                                                     Image(systemName: category.displayIcon)
                                                         .font(.system(size: 20, weight: .semibold))
@@ -1569,12 +1570,12 @@ struct AddExpenseView: View {
                                             .padding(.vertical, 14)
                                             .background(
                                                 Rectangle()
-                                                    .fill(isSelected ? Color(category.displayColor).opacity(0.12) : (colorScheme == .dark ? Color(.secondarySystemGroupedBackground) : Color.white))
+                                                    .fill(isSelected ? colorFromString(category.displayColor).opacity(0.12) : (colorScheme == .dark ? Color(.secondarySystemGroupedBackground) : Color.white))
                                             )
                                             .overlay(
                                                 Rectangle()
                                                     .frame(width: 4)
-                                                    .foregroundStyle(isSelected ? Color(category.displayColor) : Color.clear),
+                                                    .foregroundStyle(isSelected ? colorFromString(category.displayColor) : Color.clear),
                                                 alignment: .leading
                                             )
                                         }
@@ -1696,6 +1697,25 @@ struct AddExpenseView: View {
               !descriptionText.trimmingCharacters(in: .whitespaces).isEmpty,
               selectedCategory != nil else { return false }
         return true
+    }
+    
+    /// Maps category color name to SwiftUI Color (avoids loading from asset catalog by name).
+    private func colorFromString(_ colorName: String) -> Color {
+        switch colorName.lowercased() {
+        case "red": return .red
+        case "blue": return .blue
+        case "green": return .green
+        case "orange": return .orange
+        case "purple": return .purple
+        case "pink": return .pink
+        case "yellow": return .yellow
+        case "indigo": return .indigo
+        case "teal": return .teal
+        case "cyan": return .cyan
+        case "mint": return .mint
+        case "brown": return .brown
+        default: return .gray
+        }
     }
     
     private func saveTransaction() async {

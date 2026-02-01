@@ -41,10 +41,17 @@ struct LoginView: View {
         setupIncomplete || isOnboardingPresentingSheet || (startedInOnboarding && !hasCompletedOnboarding)
     }
     
+    /// Don't decide onboarding vs home until categories have loaded (avoids flash of OnboardingView for returning users).
+    private var setupStatusKnown: Bool {
+        !userSession.isLoadingCategories
+    }
+    
     var body: some View {
         Group {
             if userSession.isLoggedIn {
-                if shouldShowOnboarding {
+                if !setupStatusKnown {
+                    loadingAccountView
+                } else if shouldShowOnboarding {
                     OnboardingView(
                         onComplete: { hasCompletedOnboarding = true },
                         onUserInteraction: { startedInOnboarding = true },
@@ -65,6 +72,22 @@ struct LoginView: View {
             startedInOnboarding = false
             hasCompletedOnboarding = false
         }
+    }
+    
+    private var loadingAccountView: some View {
+        ZStack {
+            Color(.systemGroupedBackground)
+                .ignoresSafeArea()
+            VStack(spacing: 20) {
+                ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle(tint: .primary))
+                    .scaleEffect(1.2)
+                Text("Loading your account...")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .preferredColorScheme(userSession.preferredColorScheme)
     }
     
     private var loginContent: some View {

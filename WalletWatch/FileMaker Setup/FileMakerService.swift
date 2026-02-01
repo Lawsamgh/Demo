@@ -207,6 +207,13 @@ class FileMakerService {
         }
     }
     
+    /// Deletes the user account and all associated data (expenses, categories, user record)
+    func deleteUser(userID: String) async throws {
+        return try await withSession { token in
+            try await self.performDeleteUser(userID: userID, token: token)
+        }
+    }
+    
     // MARK: - Private Implementation
     
     /// Executes a block with a valid session, ensuring cleanup
@@ -663,6 +670,30 @@ class FileMakerService {
         
         if httpResponse.statusCode == 200 {
             print("✅ Password updated successfully")
+            return
+        }
+        try handleErrorResponse(data: data, statusCode: httpResponse.statusCode)
+        throw FileMakerError.httpError(statusCode: httpResponse.statusCode)
+    }
+    
+    /// Deletes the user account. FileMaker cascades to related tables (expenses, categories), so we only delete the user record.
+    private func performDeleteUser(userID: String, token: String) async throws {
+        try await performDeleteRecord(layout: FileMakerConfig.layoutName, recordId: userID, token: token)
+        print("✅ User account deleted successfully (related records cascade-deleted by FileMaker)")
+    }
+    
+    /// Deletes a single record by layout and record ID
+    private func performDeleteRecord(layout: String, recordId: String, token: String) async throws {
+        let endpoint = "layouts/\(layout)/records/\(recordId)"
+        let url = try requestBuilder.buildURL(endpoint: endpoint)
+        let request = requestBuilder.createRequest(url: url, method: "DELETE", body: nil, sessionToken: token)
+        
+        let (data, response) = try await performRequest(request: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw FileMakerError.invalidResponse
+        }
+        
+        if httpResponse.statusCode == 200 || httpResponse.statusCode == 204 {
             return
         }
         try handleErrorResponse(data: data, statusCode: httpResponse.statusCode)
