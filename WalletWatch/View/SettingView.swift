@@ -251,12 +251,12 @@ struct SettingView: View {
             VStack(alignment: .leading, spacing: 4) {
                 if let user = userSession.currentUser {
                     Text(user.fullName)
-                        .font(.system(size: 24, weight: .bold))
+                        .font(.system(size: 18, weight: .bold))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                     
                     Text(user.email)
-                        .font(.system(size: 16))
+                        .font(.system(size: 14))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }

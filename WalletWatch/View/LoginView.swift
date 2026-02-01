@@ -10,6 +10,8 @@ import SwiftUI
 struct LoginView: View {
     @StateObject private var userSession = UserSession.shared
     @State private var isOnboardingPresentingSheet = false
+    @State private var startedInOnboarding = false
+    @State private var hasCompletedOnboarding = false
     @State private var email: String = ""
     @State private var password: String = ""
     @State private var isPasswordVisible: Bool = false
@@ -26,18 +28,26 @@ struct LoginView: View {
     
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .medium)
     
-    private var needsMandatorySetup: Bool {
-        let currencySet = !(userSession.currentUser?.currency ?? "").trimmingCharacters(in: .whitespaces).isEmpty
-        let hasCategories = !userSession.categories.isEmpty
-        return !currencySet || !hasCategories || isOnboardingPresentingSheet
+    private var currencySet: Bool {
+        !(userSession.currentUser?.currency ?? "").trimmingCharacters(in: .whitespaces).isEmpty
+    }
+    private var hasCategories: Bool {
+        !userSession.categories.isEmpty
+    }
+    private var setupIncomplete: Bool {
+        !currencySet || !hasCategories
+    }
+    private var shouldShowOnboarding: Bool {
+        setupIncomplete || isOnboardingPresentingSheet || (startedInOnboarding && !hasCompletedOnboarding)
     }
     
     var body: some View {
         Group {
             if userSession.isLoggedIn {
-                if needsMandatorySetup {
+                if shouldShowOnboarding {
                     OnboardingView(
-                        onComplete: {},
+                        onComplete: { hasCompletedOnboarding = true },
+                        onUserInteraction: { startedInOnboarding = true },
                         isPresentingSheet: $isOnboardingPresentingSheet
                     )
                     .preferredColorScheme(userSession.preferredColorScheme)
@@ -50,6 +60,10 @@ struct LoginView: View {
                 loginContent
                     .preferredColorScheme(.dark)
             }
+        }
+        .onChange(of: userSession.currentUser?.userID) { _, _ in
+            startedInOnboarding = false
+            hasCompletedOnboarding = false
         }
     }
     

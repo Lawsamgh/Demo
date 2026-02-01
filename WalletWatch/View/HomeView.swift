@@ -327,6 +327,7 @@ struct HomeView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
+                        UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                             showAddExpense = true
                         }

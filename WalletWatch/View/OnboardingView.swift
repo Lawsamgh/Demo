@@ -14,10 +14,10 @@ private let primaryGradient = LinearGradient(
 )
 
 private let onboardingCurrencyOptions: [(code: String, name: String)] = [
+    ("GHS", "Ghanaian Cedi"),
     ("USD", "US Dollar"),
     ("EUR", "Euro"),
     ("GBP", "British Pound"),
-    ("GHS", "Ghanaian Cedi"),
     ("NGN", "Nigerian Naira"),
     ("XAF", "Central African CFA Franc"),
     ("XOF", "West African CFA Franc"),
@@ -32,6 +32,7 @@ private let onboardingCurrencyOptions: [(code: String, name: String)] = [
 
 struct OnboardingView: View {
     let onComplete: () -> Void
+    var onUserInteraction: (() -> Void)? = nil
     @Binding var isPresentingSheet: Bool
     @StateObject private var userSession = UserSession.shared
     
@@ -90,7 +91,10 @@ struct OnboardingView: View {
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
-                .animation(.easeInOut(duration: 0.25), value: currentPage)
+                .animation(.easeInOut(duration: 0.35), value: currentPage)
+                .onChange(of: currentPage) { _, _ in
+                    UISelectionFeedbackGenerator().selectionChanged()
+                }
                 
                 pageIndicator
                     .padding(.top, 20)
@@ -103,6 +107,7 @@ struct OnboardingView: View {
         }
         .sheet(isPresented: $showAddCategory) {
             AddCategoryView(onSaved: {
+                onUserInteraction?()
                 showAddCategory = false
             })
         }
@@ -161,7 +166,6 @@ struct OnboardingView: View {
     private func currencyOptionRow(option: (code: String, name: String)) -> some View {
         let isSelected = userSession.currentUser?.currency == option.code
         return Button {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
             saveCurrency(option.code)
         } label: {
             HStack(spacing: 16) {
@@ -251,7 +255,8 @@ struct OnboardingView: View {
     
     private var addCategoryButton: some View {
         Button {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            onUserInteraction?()
+            UISelectionFeedbackGenerator().selectionChanged()
             showAddCategory = true
         } label: {
             HStack(spacing: 12) {
@@ -352,12 +357,12 @@ struct OnboardingView: View {
                 .padding(.horizontal, 16)
             }
             Button {
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
                 showAddExpense = true
             } label: {
                 HStack(spacing: 10) {
                     Image(systemName: "plus.circle.fill").font(.system(size: 22))
-                    Text("Add your first expense").font(.system(size: 17, weight: .semibold))
+                    Text("Add your first expense or income").font(.system(size: 17, weight: .semibold))
                 }
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
@@ -371,7 +376,7 @@ struct OnboardingView: View {
             .opacity(canComplete ? 1 : 0.6)
             .animation(.easeInOut(duration: 0.2), value: canComplete)
             Button {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                UISelectionFeedbackGenerator().selectionChanged()
                 onComplete()
             } label: {
                 Text("I'll do this later")
@@ -398,12 +403,17 @@ struct OnboardingView: View {
     
     private func saveCurrency(_ currency: String) {
         guard let user = userSession.currentUser else { return }
+        onUserInteraction?()
+        UISelectionFeedbackGenerator().selectionChanged()
         savingCurrencyCode = currency
+        userSession.updateCurrency(currency)
+        withAnimation(.easeInOut(duration: 0.35)) {
+            currentPage = 1
+        }
         Task {
             do {
                 try await FileMakerService.shared.updateUserCurrency(userID: user.userID, currency: currency)
                 await MainActor.run {
-                    userSession.updateCurrency(currency)
                     savingCurrencyCode = nil
                 }
             } catch {
