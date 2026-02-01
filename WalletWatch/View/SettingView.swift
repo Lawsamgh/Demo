@@ -50,6 +50,10 @@ struct SettingView: View {
     @State private var isSavingExpenseLimit = false
     @State private var expenseLimitError: String?
     @State private var showExpenseLimitError = false
+    @State private var showPayDaySheet = false
+    @State private var isSavingPayDay = false
+    @State private var payDayError: String?
+    @State private var showPayDayError = false
     @State private var showAbout = false
     @State private var showDeleteAccountAlert = false
     @State private var isDeletingAccount = false
@@ -169,6 +173,21 @@ struct SettingView: View {
         } message: {
             Text(expenseLimitError ?? "Failed to save expense limit")
         }
+        .sheet(isPresented: $showPayDaySheet) {
+            PayDayPickerSheet(
+                currentPayDay: userSession.currentUser?.payDay,
+                isSaving: $isSavingPayDay,
+                onSave: { payDay in
+                    Task { await savePayDay(payDay) }
+                },
+                onDismiss: { showPayDaySheet = false }
+            )
+        }
+        .alert("Pay Day Error", isPresented: $showPayDayError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(payDayError ?? "Failed to save pay day")
+        }
         .sheet(isPresented: $showAbout) {
             AboutView()
         }
@@ -255,6 +274,25 @@ struct SettingView: View {
             }
         }
         isSavingExpenseLimit = false
+    }
+    
+    private func savePayDay(_ payDay: Int?) async {
+        guard let user = userSession.currentUser else { return }
+        isSavingPayDay = true
+        payDayError = nil
+        do {
+            try await FileMakerService.shared.updateUserPayDay(userID: user.userID, payDay: payDay)
+            await MainActor.run {
+                userSession.updatePayDay(payDay)
+                showPayDaySheet = false
+            }
+        } catch {
+            await MainActor.run {
+                payDayError = error.localizedDescription
+                showPayDayError = true
+            }
+        }
+        isSavingPayDay = false
     }
     
     private func saveCurrency(_ currency: String) async {
@@ -404,6 +442,21 @@ struct SettingView: View {
                     impactFeedback.impactOccurred()
                     showExpenseLimitSheet = true
                 }
+                
+                Divider()
+                    .padding(.leading, 56)
+                
+                ProfileRow(
+                    icon: "calendar.badge.clock",
+                    title: "Pay Day",
+                    subtitle: payDaySubtitle,
+                    color: .purple,
+                    iconBackground: Color.purple.opacity(0.15)
+                ) {
+                    let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+                    impactFeedback.impactOccurred()
+                    showPayDaySheet = true
+                }
             }
             .background(
                 RoundedRectangle(cornerRadius: 16)
@@ -411,6 +464,19 @@ struct SettingView: View {
                     .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
             )
         }
+    }
+    
+    private var payDaySubtitle: String {
+        guard let payDay = userSession.currentUser?.payDay else {
+            return "Calendar month (1st - 31st)"
+        }
+        return "\(ordinalString(payDay)) of each month"
+    }
+    
+    private func ordinalString(_ day: Int) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .ordinal
+        return formatter.string(from: NSNumber(value: day)) ?? "\(day)"
     }
     
     private var expenseLimitSubtitle: String {
@@ -1158,6 +1224,195 @@ struct ExpenseLimitSheet: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Pay Day Picker Sheet
+struct PayDayPickerSheet: View {
+    let currentPayDay: Int?
+    @Binding var isSaving: Bool
+    let onSave: (Int?) -> Void
+    let onDismiss: () -> Void
+    @Environment(\.dismiss) var dismiss
+    @Environment(\.colorScheme) var colorScheme
+    
+    @State private var selectedPayDay: Int?
+    @State private var useCalendarMonth: Bool
+    
+    init(currentPayDay: Int?, isSaving: Binding<Bool>, onSave: @escaping (Int?) -> Void, onDismiss: @escaping () -> Void) {
+        self.currentPayDay = currentPayDay
+        self._isSaving = isSaving
+        self.onSave = onSave
+        self.onDismiss = onDismiss
+        _selectedPayDay = State(initialValue: currentPayDay ?? 1)
+        _useCalendarMonth = State(initialValue: currentPayDay == nil)
+    }
+    
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color(.systemGroupedBackground)
+                    .ignoresSafeArea()
+                
+                ScrollView {
+                    VStack(spacing: 24) {
+                        // Explanation
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "info.circle.fill")
+                                    .font(.system(size: 16))
+                                    .foregroundStyle(.blue)
+                                Text("What is Pay Day?")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(.primary)
+                            }
+                            Text("Set the day of the month you typically receive your salary. Activity reports will then show spending cycles from your pay day to the next, instead of using calendar months (1st to 31st).")
+                                .font(.system(size: 14))
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.blue.opacity(0.08))
+                        )
+                        
+                        // Toggle for calendar month vs custom pay day
+                        VStack(alignment: .leading, spacing: 12) {
+                            Toggle(isOn: $useCalendarMonth) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Use Calendar Month")
+                                        .font(.system(size: 16, weight: .medium))
+                                        .foregroundStyle(.primary)
+                                    Text("Reports run from 1st to end of month")
+                                        .font(.system(size: 13))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .tint(.blue)
+                        }
+                        .padding(16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(colorScheme == .dark ? Color(.secondarySystemGroupedBackground) : Color.white)
+                        )
+                        
+                        // Pay day picker (only visible if not using calendar month)
+                        if !useCalendarMonth {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Select Your Pay Day")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                
+                                Picker("Pay Day", selection: $selectedPayDay) {
+                                    ForEach(1...28, id: \.self) { day in
+                                        Text(ordinalString(day)).tag(Optional(day))
+                                    }
+                                }
+                                .pickerStyle(.wheel)
+                                .frame(height: 150)
+                                
+                                HStack(spacing: 8) {
+                                    Image(systemName: "lightbulb.fill")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(.orange)
+                                    Text("Days 29-31 are not available to ensure consistency across all months.")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(.tertiary)
+                                }
+                            }
+                            .padding(16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(colorScheme == .dark ? Color(.secondarySystemGroupedBackground) : Color.white)
+                            )
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                        }
+                        
+                        // Preview
+                        if !useCalendarMonth, let day = selectedPayDay {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Preview")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                
+                                HStack(spacing: 12) {
+                                    Image(systemName: "calendar")
+                                        .font(.system(size: 20))
+                                        .foregroundStyle(.purple)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Your spending cycle")
+                                            .font(.system(size: 14, weight: .medium))
+                                            .foregroundStyle(.primary)
+                                        Text("\(ordinalString(day)) → \(ordinalString(day == 1 ? 28 : day - 1)) of next month")
+                                            .font(.system(size: 13))
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                            .padding(16)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.purple.opacity(0.08))
+                            )
+                            .transition(.opacity)
+                        }
+                        
+                        // Save Button
+                        Button {
+                            let payDayToSave = useCalendarMonth ? nil : selectedPayDay
+                            onSave(payDayToSave)
+                        } label: {
+                            HStack {
+                                if isSaving {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                } else {
+                                    Text("Save")
+                                        .font(.system(size: 17, weight: .semibold))
+                                }
+                            }
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [.blue, .purple],
+                                            startPoint: .leading,
+                                            endPoint: .trailing
+                                        )
+                                    )
+                            )
+                        }
+                        .disabled(isSaving)
+                        .opacity(isSaving ? 0.6 : 1)
+                        .padding(.top, 8)
+                    }
+                    .padding(20)
+                }
+            }
+            .navigationTitle("Pay Day")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        onDismiss()
+                        dismiss()
+                    }
+                    .disabled(isSaving)
+                }
+            }
+            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: useCalendarMonth)
+        }
+    }
+    
+    private func ordinalString(_ day: Int) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .ordinal
+        return formatter.string(from: NSNumber(value: day)) ?? "\(day)"
     }
 }
 

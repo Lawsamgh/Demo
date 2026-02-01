@@ -54,6 +54,7 @@ struct FileMakerFindResponse: Codable {
                 let ExpenseLimitType: String?
                 let ExpenseLimitValue: Double?
                 let ExpenseLimitPeriod: String?
+                let PayDay: Int?
                 
                 init(from decoder: Decoder) throws {
                     let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -74,6 +75,14 @@ struct FileMakerFindResponse: Codable {
                     } else {
                         ExpenseLimitValue = nil
                     }
+                    // PayDay can be number or string from FileMaker
+                    if let i = try? c.decode(Int.self, forKey: .PayDay) {
+                        PayDay = i
+                    } else if let s = try? c.decode(String.self, forKey: .PayDay), let parsed = Int(s) {
+                        PayDay = parsed
+                    } else {
+                        PayDay = nil
+                    }
                 }
                 
                 func encode(to encoder: Encoder) throws {
@@ -87,11 +96,12 @@ struct FileMakerFindResponse: Codable {
                     try c.encodeIfPresent(ExpenseLimitType, forKey: .ExpenseLimitType)
                     try c.encodeIfPresent(ExpenseLimitValue, forKey: .ExpenseLimitValue)
                     try c.encodeIfPresent(ExpenseLimitPeriod, forKey: .ExpenseLimitPeriod)
+                    try c.encodeIfPresent(PayDay, forKey: .PayDay)
                 }
                 
                 enum CodingKeys: String, CodingKey {
                     case EmailAddress, account_password, first_name, last_name, Currency, Theme
-                    case ExpenseLimitType, ExpenseLimitValue, ExpenseLimitPeriod
+                    case ExpenseLimitType, ExpenseLimitValue, ExpenseLimitPeriod, PayDay
                 }
             }
         }

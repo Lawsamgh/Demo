@@ -214,6 +214,13 @@ class FileMakerService {
         }
     }
     
+    /// Updates the user's pay day in FileMaker (test_table_login.PayDay)
+    func updateUserPayDay(userID: String, payDay: Int?) async throws {
+        return try await withSession { token in
+            try await self.performUpdateUserPayDay(userID: userID, payDay: payDay, token: token)
+        }
+    }
+    
     /// Logs out and clears the session
     func logout() async {
         if let token = sessionManager.token {
@@ -328,11 +335,13 @@ class FileMakerService {
             let expenseLimitValue: Double? = userData.fieldData.ExpenseLimitValue
             let limitPeriodRaw = userData.fieldData.ExpenseLimitPeriod?.trimmingCharacters(in: .whitespaces).lowercased()
             let expenseLimitPeriod: String? = (limitPeriodRaw == "week" || limitPeriodRaw == "month" || limitPeriodRaw == "year") ? limitPeriodRaw : nil
+            // Pay day: day of month user receives salary (1-28)
+            let payDay: Int? = userData.fieldData.PayDay.flatMap { ($0 >= 1 && $0 <= 28) ? $0 : nil }
             print("✅ Login successful!")
             print("📋 PrimaryKey (recordId) from test_table_login: '\(userID)'")
             print("📋 PrimaryKey type: \(type(of: userID))")
             print("📋 This PrimaryKey will be used to filter Category table by UserID field")
-            return User(userID: userID, firstName: firstName, lastName: lastName, email: email, currency: currency, theme: theme, expenseLimitType: expenseLimitType, expenseLimitValue: expenseLimitValue, expenseLimitPeriod: expenseLimitPeriod)
+            return User(userID: userID, firstName: firstName, lastName: lastName, email: email, currency: currency, theme: theme, expenseLimitType: expenseLimitType, expenseLimitValue: expenseLimitValue, expenseLimitPeriod: expenseLimitPeriod, payDay: payDay)
         } else {
             try handleErrorResponse(data: data, statusCode: httpResponse.statusCode)
             throw FileMakerError.userNotFound
@@ -684,6 +693,33 @@ class FileMakerService {
         
         if httpResponse.statusCode == 200 {
             print("✅ Password updated successfully")
+            return
+        }
+        try handleErrorResponse(data: data, statusCode: httpResponse.statusCode)
+        throw FileMakerError.httpError(statusCode: httpResponse.statusCode)
+    }
+    
+    /// Updates the user's pay day in FileMaker (test_table_login.PayDay)
+    private func performUpdateUserPayDay(userID: String, payDay: Int?, token: String) async throws {
+        let endpoint = "layouts/\(FileMakerConfig.layoutName)/records/\(userID)"
+        let url = try requestBuilder.buildURL(endpoint: endpoint)
+        
+        // If payDay is nil, we send empty string to clear the field; otherwise send the day number
+        let fieldData: [String: Any] = [
+            FileMakerConfig.userPayDayField: payDay.map { $0 as Any } ?? "" as Any
+        ]
+        let body = try requestBuilder.createRecordBody(fieldData: fieldData)
+        let request = requestBuilder.createRequest(url: url, method: "PATCH", body: body, sessionToken: token)
+        
+        print("📝 Updating user pay day in FileMaker: \(payDay.map { String($0) } ?? "cleared")")
+        let (data, response) = try await performRequest(request: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw FileMakerError.invalidResponse
+        }
+        
+        if httpResponse.statusCode == 200 {
+            print("✅ Pay day updated successfully")
             return
         }
         try handleErrorResponse(data: data, statusCode: httpResponse.statusCode)

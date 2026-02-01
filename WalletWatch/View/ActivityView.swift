@@ -36,17 +36,30 @@ struct ActivityView: View {
         return userSession.categories.first { $0.id.trimmingCharacters(in: .whitespaces) == normalized }
     }
     
+    /// User's configured pay day (1-28), or nil for calendar month
+    private var userPayDay: Int? {
+        userSession.currentUser?.payDay
+    }
+    
     // MARK: - Period date range
     private var periodStart: Date {
         let calendar = Calendar.current
         let now = Date()
         let startOfToday = calendar.startOfDay(for: now)
+        
         switch selectedPeriod {
         case .week:
             return calendar.date(byAdding: .day, value: -6, to: startOfToday) ?? startOfToday
+            
         case .month:
+            // If user has a pay day set, calculate pay cycle start
+            if let payDay = userPayDay {
+                return payCycleStart(year: selectedYear, month: selectedMonth, payDay: payDay)
+            }
+            // Default calendar month
             guard let monthStart = calendar.date(from: DateComponents(year: selectedYear, month: selectedMonth, day: 1)) else { return startOfToday }
             return monthStart
+            
         case .year:
             return calendar.date(from: DateComponents(year: selectedYear, month: 1, day: 1)) ?? startOfToday
         }
@@ -56,18 +69,55 @@ struct ActivityView: View {
         let calendar = Calendar.current
         let now = Date()
         let startOfToday = calendar.startOfDay(for: now)
+        
         switch selectedPeriod {
         case .week:
             return calendar.date(byAdding: .day, value: 1, to: startOfToday)?.addingTimeInterval(-1) ?? now
+            
         case .month:
+            // If user has a pay day set, calculate pay cycle end
+            if let payDay = userPayDay {
+                return payCycleEnd(year: selectedYear, month: selectedMonth, payDay: payDay)
+            }
+            // Default calendar month
             guard let monthStart = calendar.date(from: DateComponents(year: selectedYear, month: selectedMonth, day: 1)),
                   let nextMonth = calendar.date(byAdding: .month, value: 1, to: monthStart),
                   let lastDayOfMonth = calendar.date(byAdding: .day, value: -1, to: nextMonth) else { return now }
             return calendar.date(bySettingHour: 23, minute: 59, second: 59, of: lastDayOfMonth) ?? now
+            
         case .year:
             guard let endOfYear = calendar.date(from: DateComponents(year: selectedYear, month: 12, day: 31)) else { return now }
             return calendar.date(bySettingHour: 23, minute: 59, second: 59, of: endOfYear) ?? now
         }
+    }
+    
+    /// Calculate pay cycle start date for a given year/month and pay day
+    /// Example: payDay=21 for January 2026 → Jan 21, 2026
+    private func payCycleStart(year: Int, month: Int, payDay: Int) -> Date {
+        let calendar = Calendar.current
+        guard let date = calendar.date(from: DateComponents(year: year, month: month, day: payDay)) else {
+            return Date()
+        }
+        return calendar.startOfDay(for: date)
+    }
+    
+    /// Calculate pay cycle end date for a given year/month and pay day
+    /// Example: payDay=21 for January 2026 → Feb 20, 2026 at 23:59:59
+    private func payCycleEnd(year: Int, month: Int, payDay: Int) -> Date {
+        let calendar = Calendar.current
+        // Pay cycle ends on (payDay - 1) of the next month
+        var nextYear = year
+        var nextMonth = month + 1
+        if nextMonth > 12 {
+            nextMonth = 1
+            nextYear += 1
+        }
+        
+        let endDay = payDay == 1 ? 28 : payDay - 1
+        guard let endDate = calendar.date(from: DateComponents(year: nextYear, month: nextMonth, day: endDay)) else {
+            return Date()
+        }
+        return calendar.date(bySettingHour: 23, minute: 59, second: 59, of: endDate) ?? endDate
     }
     
     /// Expenses within the selected period
@@ -85,6 +135,21 @@ struct ActivityView: View {
     
     private var balance: Double {
         totalIncome - totalExpenses
+    }
+    
+    /// Cumulative balance: All income minus all expenses BEFORE the current period start
+    /// This represents the "carried over" balance from previous periods
+    private var cumulativeBalanceBeforePeriod: Double {
+        let expensesBeforePeriod = expenses.filter { $0.date < periodStart }
+        let incomeBeforePeriod = expensesBeforePeriod.filter { $0.type == .income }.reduce(0) { $0 + $1.amount }
+        let spendingBeforePeriod = expensesBeforePeriod.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount }
+        return incomeBeforePeriod - spendingBeforePeriod
+    }
+    
+    /// Available funds for this period = carried over balance + current period income
+    /// This is what the user actually has available to spend
+    private var availableFundsForPeriod: Double {
+        max(0, cumulativeBalanceBeforePeriod) + totalIncome
     }
     
     /// Category breakdown for expenses (sorted by amount descending)
@@ -182,6 +247,15 @@ struct ActivityView: View {
         switch selectedPeriod {
         case .week: return "Last 7 days"
         case .month:
+            // If user has a pay day set, show pay cycle range
+            if let payDay = userPayDay {
+                let formatter = DateFormatter()
+                formatter.dateFormat = "MMM d"
+                let startStr = formatter.string(from: periodStart)
+                let endStr = formatter.string(from: periodEnd)
+                return "\(startStr) – \(endStr)"
+            }
+            // Default calendar month
             let formatter = DateFormatter()
             formatter.dateFormat = "MMMM"
             guard let d = Calendar.current.date(from: DateComponents(year: selectedYear, month: selectedMonth, day: 1)) else { return "" }
@@ -283,9 +357,22 @@ struct ActivityView: View {
                             .frame(width: 44, height: 36)
                     }
                     Spacer()
-                    Text(periodHeaderText)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.primary)
+                    VStack(spacing: 2) {
+                        Text(periodHeaderText)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.primary)
+                        
+                        // Show pay day indicator when using pay cycles
+                        if selectedPeriod == .month, let payDay = userPayDay {
+                            HStack(spacing: 4) {
+                                Image(systemName: "calendar.badge.clock")
+                                    .font(.system(size: 10))
+                                Text("Pay cycle (\(ordinalString(payDay)))")
+                                    .font(.system(size: 11, weight: .medium))
+                            }
+                            .foregroundStyle(.purple)
+                        }
+                    }
                     Spacer()
                     Button {
                         withAnimation(.spring(response: 0.3)) {
@@ -307,23 +394,54 @@ struct ActivityView: View {
         }
     }
     
+    /// Format day as ordinal (1st, 2nd, 3rd, etc.)
+    private func ordinalString(_ day: Int) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .ordinal
+        return formatter.string(from: NSNumber(value: day)) ?? "\(day)"
+    }
+    
     private var summarySection: some View {
-        HStack(alignment: .top, spacing: 12) {
-            summaryCard(
-                title: "Income",
-                amount: totalIncome,
-                color: Color.green
-            )
-            summaryCard(
-                title: "Expenses",
-                amount: totalExpenses,
-                color: Color.red
-            )
-            summaryCard(
-                title: "Balance",
-                amount: balance,
-                color: balance >= 0 ? .primary : Color.red
-            )
+        VStack(spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                summaryCard(
+                    title: "Income",
+                    amount: totalIncome,
+                    color: Color.green
+                )
+                summaryCard(
+                    title: "Expenses",
+                    amount: totalExpenses,
+                    color: Color.red
+                )
+                summaryCard(
+                    title: "Balance",
+                    amount: balance,
+                    color: balance >= 0 ? .primary : Color.red
+                )
+            }
+            
+            // Show carried-over balance if user has no income this period but has previous balance
+            if totalIncome == 0 && cumulativeBalanceBeforePeriod > 0 {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.up.forward.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.blue)
+                    Text("Carried over from previous periods: ")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    Text(UserSession.formatCurrency(amount: cumulativeBalanceBeforePeriod, currencyCode: userSession.currentUser?.currency))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.blue)
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.blue.opacity(0.1))
+                )
+            }
         }
     }
     
@@ -374,6 +492,8 @@ struct ActivityView: View {
                         categoryBreakdown: categoryBreakdown,
                         totalExpenses: totalExpenses,
                         totalIncome: totalIncome,
+                        availableFunds: availableFundsForPeriod,
+                        cumulativeBalance: cumulativeBalanceBeforePeriod,
                         currencyCode: userSession.currentUser?.currency,
                         colorFromString: colorFromString
                     )
@@ -613,6 +733,8 @@ struct SpendingDonutChartView: View {
     let categoryBreakdown: [(category: Category, amount: Double)]
     let totalExpenses: Double
     let totalIncome: Double
+    let availableFunds: Double  // Cumulative balance + current period income
+    let cumulativeBalance: Double  // Balance carried over from previous periods
     let currencyCode: String?
     let colorFromString: (String) -> Color
     
@@ -628,6 +750,26 @@ struct SpendingDonutChartView: View {
     private var expensePercentOfIncome: Double {
         guard totalIncome > 0 else { return 0 }
         return (totalExpenses / totalIncome) * 100
+    }
+    
+    /// Expense as percentage of available funds (for mid-month earners with carried-over balance)
+    private var expensePercentOfAvailableFunds: Double {
+        guard availableFunds > 0 else { return 0 }
+        return (totalExpenses / availableFunds) * 100
+    }
+    
+    /// Determines which metric to show and its label
+    private var displayMetric: (percentage: Double, label: String) {
+        // Case 1: Has income this period - show % of income spent
+        if totalIncome > 0 {
+            return (expensePercentOfIncome, "of income spent")
+        }
+        // Case 2: No income this period, but has carried-over balance - show % of available funds
+        if cumulativeBalance > 0 && availableFunds > 0 {
+            return (expensePercentOfAvailableFunds, "of balance used")
+        }
+        // Case 3: No income and no positive balance - show raw expense amount indicator
+        return (0, "no income yet")
     }
     
     var body: some View {
@@ -710,9 +852,10 @@ struct SpendingDonutChartView: View {
                 Text(formatCenterPercentage)
                     .font(.system(size: 24, weight: .bold, design: .rounded))
                     .foregroundStyle(.primary)
-                Text("of income spent")
+                Text(displayMetric.label)
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
             .frame(width: 96, height: 96)
         }
@@ -720,11 +863,19 @@ struct SpendingDonutChartView: View {
     }
     
     private var formatCenterPercentage: String {
-        if totalIncome <= 0 { return "—" }
-        if expensePercentOfIncome >= 100 {
-            return String(format: "%.0f%%", expensePercentOfIncome)
+        let metric = displayMetric
+        
+        // No income and no positive balance - show dash
+        if metric.label == "no income yet" {
+            return "—"
         }
-        return String(format: "%.1f%%", expensePercentOfIncome)
+        
+        // Format the percentage based on value
+        let percentage = metric.percentage
+        if percentage >= 100 {
+            return String(format: "%.0f%%", percentage)
+        }
+        return String(format: "%.1f%%", percentage)
     }
     
     private func percentageForItem(_ amount: Double) -> Double {

@@ -17,6 +17,7 @@ struct User: Codable {
     var expenseLimitType: String? // "percentage" or "amount"
     var expenseLimitValue: Double? // e.g. 80 for 80%, or 1000 for $1000
     var expenseLimitPeriod: String? // "week", "month", "year"
+    var payDay: Int? // Day of month user receives salary (1-28); nil means use calendar month
     
     var fullName: String {
         "\(firstName) \(lastName)"
@@ -24,20 +25,25 @@ struct User: Codable {
     
     /// User with updated currency (same user, new currency value)
     func withCurrency(_ newCurrency: String?) -> User {
-        User(userID: userID, firstName: firstName, lastName: lastName, email: email, currency: newCurrency, theme: theme, expenseLimitType: expenseLimitType, expenseLimitValue: expenseLimitValue, expenseLimitPeriod: expenseLimitPeriod)
+        User(userID: userID, firstName: firstName, lastName: lastName, email: email, currency: newCurrency, theme: theme, expenseLimitType: expenseLimitType, expenseLimitValue: expenseLimitValue, expenseLimitPeriod: expenseLimitPeriod, payDay: payDay)
     }
     
     /// User with updated theme (same user, new theme value)
     func withTheme(_ newTheme: String?) -> User {
-        User(userID: userID, firstName: firstName, lastName: lastName, email: email, currency: currency, theme: newTheme, expenseLimitType: expenseLimitType, expenseLimitValue: expenseLimitValue, expenseLimitPeriod: expenseLimitPeriod)
+        User(userID: userID, firstName: firstName, lastName: lastName, email: email, currency: currency, theme: newTheme, expenseLimitType: expenseLimitType, expenseLimitValue: expenseLimitValue, expenseLimitPeriod: expenseLimitPeriod, payDay: payDay)
     }
     
     /// User with updated expense limit settings
     func withExpenseLimit(type: String?, value: Double?, period: String?) -> User {
-        User(userID: userID, firstName: firstName, lastName: lastName, email: email, currency: currency, theme: theme, expenseLimitType: type, expenseLimitValue: value, expenseLimitPeriod: period)
+        User(userID: userID, firstName: firstName, lastName: lastName, email: email, currency: currency, theme: theme, expenseLimitType: type, expenseLimitValue: value, expenseLimitPeriod: period, payDay: payDay)
     }
     
-    init(userID: String, firstName: String, lastName: String, email: String, currency: String? = nil, theme: String? = nil, expenseLimitType: String? = nil, expenseLimitValue: Double? = nil, expenseLimitPeriod: String? = nil) {
+    /// User with updated pay day setting
+    func withPayDay(_ newPayDay: Int?) -> User {
+        User(userID: userID, firstName: firstName, lastName: lastName, email: email, currency: currency, theme: theme, expenseLimitType: expenseLimitType, expenseLimitValue: expenseLimitValue, expenseLimitPeriod: expenseLimitPeriod, payDay: newPayDay)
+    }
+    
+    init(userID: String, firstName: String, lastName: String, email: String, currency: String? = nil, theme: String? = nil, expenseLimitType: String? = nil, expenseLimitValue: Double? = nil, expenseLimitPeriod: String? = nil, payDay: Int? = nil) {
         self.userID = userID
         self.firstName = firstName
         self.lastName = lastName
@@ -47,5 +53,6 @@ struct User: Codable {
         self.expenseLimitType = expenseLimitType
         self.expenseLimitValue = expenseLimitValue
         self.expenseLimitPeriod = expenseLimitPeriod
+        self.payDay = payDay
     }
 }

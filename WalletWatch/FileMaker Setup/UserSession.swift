@@ -106,6 +106,15 @@ class UserSession: ObservableObject {
         print("✅ Expense limit updated: \(type)=\(value) \(period)")
     }
     
+    /// Updates the current user's pay day (day of month they receive salary)
+    func updatePayDay(_ payDay: Int?) {
+        guard let user = currentUser else { return }
+        let updatedUser = user.withPayDay(payDay)
+        self.currentUser = updatedUser
+        saveUserToDefaults(updatedUser)
+        print("✅ Pay day updated: \(payDay.map { String($0) } ?? "cleared (calendar month)")")
+    }
+    
     /// Preferred color scheme from user's theme: nil/empty/"Light Mode" → light, "Dark Mode" → dark
     var preferredColorScheme: ColorScheme? {
         let t = currentUser?.theme?.trimmingCharacters(in: .whitespaces).lowercased()

@@ -33,6 +33,7 @@ struct FileMakerConfig {
     static let userExpenseLimitTypeField = "ExpenseLimitType" // "percentage" or "amount"
     static let userExpenseLimitValueField = "ExpenseLimitValue" // e.g. 80 for 80%, or 1000 for $1000
     static let userExpenseLimitPeriodField = "ExpenseLimitPeriod" // "week", "month", "year"
+    static let userPayDayField = "PayDay" // Day of month user receives salary (1-28)
     
     // Category Table Configuration
     static let categoryLayoutName = "Category" // Update with your Category layout name
