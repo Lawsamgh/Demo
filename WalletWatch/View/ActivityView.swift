@@ -41,6 +41,23 @@ struct ActivityView: View {
         userSession.currentUser?.payDay
     }
     
+    /// The (year, month) that identifies the pay cycle containing today. Used to auto-switch to current range when user has pay day set.
+    private var currentPayCycleYearMonth: (year: Int, month: Int)? {
+        guard let payDay = userPayDay else { return nil }
+        let calendar = Calendar.current
+        let now = Date()
+        let dayOfMonth = calendar.component(.day, from: now)
+        let month = calendar.component(.month, from: now)
+        let year = calendar.component(.year, from: now)
+        if dayOfMonth >= payDay {
+            return (year, month) // Cycle started this month
+        }
+        if month == 1 {
+            return (year - 1, 12)
+        }
+        return (year, month - 1)
+    }
+    
     // MARK: - Period date range
     private var periodStart: Date {
         let calendar = Calendar.current
@@ -248,7 +265,7 @@ struct ActivityView: View {
         case .week: return "Last 7 days"
         case .month:
             // If user has a pay day set, show pay cycle range
-            if let payDay = userPayDay {
+            if userPayDay != nil {
                 let formatter = DateFormatter()
                 formatter.dateFormat = "MMM d"
                 let startStr = formatter.string(from: periodStart)
@@ -291,6 +308,13 @@ struct ActivityView: View {
             .task {
                 await loadExpenses()
             }
+            .onAppear {
+                // When user has pay day set and Month is selected, auto-switch to the pay cycle that contains today (e.g. Jan 21 – Feb 20)
+                if selectedPeriod == .month, let cycle = currentPayCycleYearMonth {
+                    selectedYear = cycle.year
+                    selectedMonth = cycle.month
+                }
+            }
         }
     }
     
@@ -305,8 +329,14 @@ struct ActivityView: View {
                             selectedPeriod = period
                             let now = Date()
                             let cal = Calendar.current
-                            selectedYear = cal.component(.year, from: now)
-                            selectedMonth = cal.component(.month, from: now)
+                            // When user has pay day and selects Month, show the pay cycle that contains today
+                            if period == .month, let cycle = currentPayCycleYearMonth {
+                                selectedYear = cycle.year
+                                selectedMonth = cycle.month
+                            } else {
+                                selectedYear = cal.component(.year, from: now)
+                                selectedMonth = cal.component(.month, from: now)
+                            }
                         }
                     } label: {
                         Text(period.rawValue)
