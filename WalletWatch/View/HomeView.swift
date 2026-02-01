@@ -1185,10 +1185,10 @@ struct TransactionCard: View {
         colorFromString(category?.displayColor ?? "gray")
     }
     
-    /// In dark mode: expense amount is red, income stays green; in light mode expense is primary
+    /// Expense amount is red in both light and dark mode; income is green
     private var amountColor: Color {
         if expense.type == .income { return .green }
-        return colorScheme == .dark ? .red : .primary
+        return .red
     }
     
     var body: some View {
