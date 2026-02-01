@@ -635,7 +635,7 @@ struct SettingView: View {
     }
 }
 
-// MARK: - Currency Picker Sheet
+// MARK: - Currency Picker Sheet (iPhone Settings–style)
 struct CurrencyPickerSheet: View {
     let currentCurrency: String?
     @Binding var isSaving: Bool
@@ -643,43 +643,97 @@ struct CurrencyPickerSheet: View {
     let onDismiss: () -> Void
     @Environment(\.dismiss) var dismiss
     
+    @State private var searchText = ""
+    
+    private var filteredCurrencies: [(code: String, name: String)] {
+        let term = searchText.trimmingCharacters(in: .whitespaces).lowercased()
+        if term.isEmpty { return currencyOptions }
+        return currencyOptions.filter {
+            $0.code.lowercased().contains(term) || $0.name.lowercased().contains(term)
+        }
+    }
+    
     var body: some View {
         NavigationStack {
             List {
-                ForEach(currencyOptions, id: \.code) { option in
-                    Button {
-                        onSelect(option.code)
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
+                Section {
+                    ForEach(filteredCurrencies, id: \.code) { option in
+                        Button {
+                            guard !isSaving else { return }
+                            let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+                            impactFeedback.impactOccurred()
+                            onSelect(option.code)
+                        } label: {
+                            HStack(spacing: 12) {
                                 Text(option.code)
-                                    .font(.system(size: 17, weight: .semibold))
+                                    .font(.system(size: 17, weight: .regular))
                                     .foregroundStyle(.primary)
+                                    .frame(width: 44, alignment: .leading)
+                                
                                 Text(option.name)
-                                    .font(.system(size: 14))
-                                    .foregroundStyle(.secondary)
+                                    .font(.system(size: 17, weight: .regular))
+                                    .foregroundStyle(.primary)
+                                
+                                Spacer(minLength: 8)
+                                
+                                if currentCurrency == option.code {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 16, weight: .semibold))
+                                        .foregroundStyle(.blue)
+                                }
                             }
-                            Spacer()
-                            if currentCurrency == option.code {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(.green)
-                            }
-                            if isSaving {
-                                ProgressView()
-                            }
+                            .contentShape(Rectangle())
                         }
-                        .padding(.vertical, 4)
+                        .disabled(isSaving)
+                    }
+                } header: {
+                    Text("Currencies")
+                } footer: {
+                    Text("Used for amounts and display throughout the app.")
+                }
+                
+                if filteredCurrencies.isEmpty && !searchText.isEmpty {
+                    Section {
+                        HStack {
+                            Spacer()
+                            VStack(spacing: 8) {
+                                Image(systemName: "magnifyingglass")
+                                    .font(.system(size: 28))
+                                    .foregroundStyle(.tertiary)
+                                Text("No currencies match \"\(searchText)\"")
+                                    .font(.system(size: 15))
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.center)
+                            }
+                            .padding(.vertical, 24)
+                            Spacer()
+                        }
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle("Currency")
+            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        onDismiss()
+                        dismiss()
                     }
                     .disabled(isSaving)
                 }
-            }
-            .navigationTitle("Preferred Currency")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") {
-                        onDismiss()
-                        dismiss()
+                ToolbarItem(placement: .confirmationAction) {
+                    if isSaving {
+                        ProgressView()
+                            .scaleEffect(0.9)
+                    } else {
+                        Button("Done") {
+                            onDismiss()
+                            dismiss()
+                        }
                     }
                 }
             }
