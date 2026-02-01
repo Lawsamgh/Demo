@@ -277,7 +277,7 @@ struct SettingView: View {
     private var accountSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Account")
-                .font(.system(size: 18, weight: .semibold))
+                .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(.primary)
                 .padding(.horizontal, 4)
                 .padding(.bottom, 2)
@@ -317,7 +317,7 @@ struct SettingView: View {
     private var manageDataSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Manage Data")
-                .font(.system(size: 18, weight: .semibold))
+                .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(.primary)
                 .padding(.horizontal, 4)
                 .padding(.bottom, 2)
@@ -377,7 +377,7 @@ struct SettingView: View {
     private var settingsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Settings")
-                .font(.system(size: 18, weight: .semibold))
+                .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(.primary)
                 .padding(.horizontal, 4)
                 .padding(.bottom, 2)

@@ -16,6 +16,7 @@ struct ActivityView: View {
     @State private var selectedYear: Int = Calendar.current.component(.year, from: Date())
     @State private var selectedMonth: Int = Calendar.current.component(.month, from: Date())
     @State private var showAllActivityTransactions = false
+    @State private var selectedCategoryDetailItem: CategoryDetailSheetItem?
     
     private let maxTimelineRecords = 5
     
@@ -391,7 +392,16 @@ struct ActivityView: View {
                                 category: item.category,
                                 amount: item.amount,
                                 percentage: totalExpenses > 0 ? item.amount / totalExpenses : 0,
-                                currencyCode: userSession.currentUser?.currency
+                                currencyCode: userSession.currentUser?.currency,
+                                onTap: {
+                                    let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+                                    impactFeedback.impactOccurred()
+                                    let catExpenses = filteredExpenses.filter {
+                                        $0.type == .expense &&
+                                        $0.categoryID.trimmingCharacters(in: .whitespaces) == item.category.id.trimmingCharacters(in: .whitespaces)
+                                    }
+                                    selectedCategoryDetailItem = CategoryDetailSheetItem(category: item.category, expenses: catExpenses)
+                                }
                             )
                         }
                     }
@@ -476,6 +486,16 @@ struct ActivityView: View {
                     .presentationDetents([.large])
                     .presentationDragIndicator(.visible)
                 }
+                .sheet(item: $selectedCategoryDetailItem) { item in
+                    CategoryExpensesDetailView(
+                        userSession: userSession,
+                        category: item.category,
+                        expenses: item.expenses,
+                        currencyCode: userSession.currentUser?.currency
+                    )
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
+                }
             }
         }
     }
@@ -530,6 +550,12 @@ struct ActivityView: View {
         }
         isLoadingExpenses = false
     }
+}
+
+private struct CategoryDetailSheetItem: Identifiable {
+    var id: String { category.id }
+    let category: Category
+    let expenses: [Expense]
 }
 
 // MARK: - Spending Donut Chart
@@ -589,16 +615,6 @@ struct SpendingDonutChartView: View {
                                         .foregroundStyle(.secondary)
                                         .lineLimit(1)
                                 }
-                                HStack(spacing: 4) {
-                                    Text("\(Int(percentageForItem(item.amount) * 100))%")
-                                        .font(.system(size: 11, weight: .semibold))
-                                        .foregroundStyle(.primary)
-                                    Spacer()
-                                    Text(UserSession.formatCurrency(amount: item.amount, currencyCode: currencyCode))
-                                        .font(.system(size: 11, weight: .medium))
-                                        .foregroundStyle(.secondary)
-                                }
-                                .padding(.leading, 14)
                             }
                             if categoryBreakdown.count > 4 {
                                 Text("+\(categoryBreakdown.count - 4) more")

@@ -91,6 +91,14 @@ struct HomeView: View {
         filteredExpenses.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount }
     }
     
+    /// Cumulative balance (all time): reflects carry-over from previous months
+    private var cumulativeBalance: Double {
+        let allIncome = expenses.filter { $0.type == .income }.reduce(0) { $0 + $1.amount }
+        let allExpenses = expenses.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount }
+        return allIncome - allExpenses
+    }
+    
+    /// Period-specific balance (for backward compatibility and expense limit)
     private var balance: Double {
         totalIncome - totalExpenses
     }
@@ -641,16 +649,21 @@ struct HomeView: View {
                 .padding(.horizontal, 20)
             }
             
-            // Balance Section
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Total Balance")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(.secondary)
+            // Balance Section (cumulative: includes carry-over from previous periods)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    Text("Total Balance")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    Text("(overall)")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
                 
                 if isLoadingExpenses {
                     ShimmerView(width: 160, height: 44, cornerRadius: 10)
                 } else {
-                    Text(UserSession.formatCurrency(amount: balance, currencyCode: userSession.currentUser?.currency))
+                    Text(UserSession.formatCurrency(amount: cumulativeBalance, currencyCode: userSession.currentUser?.currency))
                         .font(.system(size: 40, weight: .regular, design: .rounded))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
@@ -1031,6 +1044,7 @@ struct CategoryCard: View {
     let amount: Double
     let percentage: Double
     let currencyCode: String?
+    var onTap: (() -> Void)? = nil
     
     /// Category circle/icon color — same logic as TransactionCard
     private var categoryColor: Color {
@@ -1038,7 +1052,7 @@ struct CategoryCard: View {
     }
     
     var body: some View {
-        HStack(spacing: 16) {
+        let content = HStack(spacing: 16) {
             Circle()
                 .fill(categoryColor.opacity(0.15))
                 .frame(width: 46, height: 46)
@@ -1069,15 +1083,24 @@ struct CategoryCard: View {
             
             Spacer()
             
-            Image(systemName: "chevron.right")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.tertiary)
+            if onTap != nil {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
         }
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 16)
                 .fill(Color(.secondarySystemGroupedBackground))
         )
+        
+        if let onTap = onTap {
+            Button(action: onTap) { content }
+                .buttonStyle(.plain)
+        } else {
+            content
+        }
     }
     
     private func colorFromString(_ colorName: String) -> Color {
@@ -1181,6 +1204,128 @@ struct TransactionCard: View {
         case "mint": return .mint
         case "brown": return .brown
         default: return .gray
+        }
+    }
+}
+
+// MARK: - Category Expenses Detail (drill-down when category is tapped)
+struct CategoryExpensesDetailView: View {
+    @ObservedObject var userSession: UserSession
+    @Environment(\.dismiss) var dismiss
+    let category: Category
+    let expenses: [Expense]
+    let currencyCode: String?
+    
+    private var groupedByDate: [(section: String, items: [Expense])] {
+        let sorted = expenses.sorted { $0.sortDateForRecency > $1.sortDateForRecency }
+        let calendar = Calendar.current
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE, MMM d"
+        
+        var sections: [(String, [Expense])] = []
+        var currentSection = ""
+        var currentItems: [Expense] = []
+        
+        for expense in sorted {
+            let date = expense.sortDateForRecency
+            let section: String
+            if calendar.isDateInToday(date) {
+                section = "Today"
+            } else if calendar.isDateInYesterday(date) {
+                section = "Yesterday"
+            } else {
+                section = formatter.string(from: date)
+            }
+            if section == currentSection {
+                currentItems.append(expense)
+            } else {
+                if !currentItems.isEmpty {
+                    sections.append((currentSection, currentItems))
+                }
+                currentSection = section
+                currentItems = [expense]
+            }
+        }
+        if !currentItems.isEmpty {
+            sections.append((currentSection, currentItems))
+        }
+        return sections
+    }
+    
+    private var totalAmount: Double {
+        expenses.reduce(0) { $0 + $1.amount }
+    }
+    
+    var body: some View {
+        NavigationStack {
+            Group {
+                if expenses.isEmpty {
+                    VStack(spacing: 16) {
+                        Image(systemName: "tray")
+                            .font(.system(size: 50))
+                            .foregroundStyle(.secondary)
+                        Text("No expenses in this category")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView(showsIndicators: true) {
+                        VStack(alignment: .leading, spacing: 20) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Total")
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundStyle(.secondary)
+                                    Text(UserSession.formatCurrency(amount: totalAmount, currencyCode: currencyCode))
+                                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                                        .foregroundStyle(.primary)
+                                }
+                                Spacer()
+                            }
+                            .padding(16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .fill(Color(.secondarySystemGroupedBackground))
+                            )
+                            
+                            VStack(alignment: .leading, spacing: 12) {
+                                ForEach(Array(groupedByDate.enumerated()), id: \.offset) { _, group in
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        Text(group.section)
+                                            .font(.system(size: 13, weight: .semibold))
+                                            .foregroundStyle(.secondary)
+                                            .padding(.horizontal, 4)
+                                        
+                                        VStack(spacing: 12) {
+                                            ForEach(group.items) { expense in
+                                                TransactionCard(
+                                                    expense: expense,
+                                                    category: category,
+                                                    currencyCode: currencyCode
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 16)
+                        .padding(.bottom, 40)
+                    }
+                }
+            }
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle(category.name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
         }
     }
 }
