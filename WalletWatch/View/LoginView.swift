@@ -37,8 +37,11 @@ struct LoginView: View {
     private var setupIncomplete: Bool {
         !currencySet || !hasCategories
     }
+    /// Show HomeView when user has completed onboarding (tapped Continue on category slide); otherwise show onboarding if setup incomplete or still in flow.
     private var shouldShowOnboarding: Bool {
-        setupIncomplete || isOnboardingPresentingSheet || (startedInOnboarding && !hasCompletedOnboarding)
+        if hasCompletedOnboarding { return false }
+        if setupIncomplete { return true }
+        return isOnboardingPresentingSheet || (startedInOnboarding && !hasCompletedOnboarding)
     }
     
     /// Don't decide onboarding vs home until categories have loaded (avoids flash of OnboardingView for returning users).
@@ -68,7 +71,8 @@ struct LoginView: View {
                     .preferredColorScheme(.dark)
             }
         }
-        .onChange(of: userSession.currentUser?.userID) { _, _ in
+        .onChange(of: userSession.currentUser?.userID) { oldID, newID in
+            guard oldID != newID else { return }
             startedInOnboarding = false
             hasCompletedOnboarding = false
         }

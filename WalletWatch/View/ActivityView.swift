@@ -18,6 +18,7 @@ struct ActivityView: View {
     @State private var showAllActivityTransactions = false
     @State private var selectedCategoryDetailItem: CategoryDetailSheetItem?
     @State private var expenseToEdit: Expense?
+    @State private var expenseToShowDetail: Expense?
     @State private var deleteError: String?
     @State private var showDeleteError = false
     
@@ -150,8 +151,9 @@ struct ActivityView: View {
         filteredExpenses.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount }
     }
     
+    /// End-of-period balance: carried over from previous periods + income this period - expenses this period
     private var balance: Double {
-        totalIncome - totalExpenses
+        cumulativeBalanceBeforePeriod + totalIncome - totalExpenses
     }
     
     /// Cumulative balance: All income minus all expenses BEFORE the current period start
@@ -451,8 +453,8 @@ struct ActivityView: View {
                 )
             }
             
-            // Show carried-over balance if user has no income this period but has previous balance
-            if totalIncome == 0 && cumulativeBalanceBeforePeriod > 0 {
+            // Show carried-over balance when previous period(s) left a surplus (applies to calendar-month and pay-day users)
+            if cumulativeBalanceBeforePeriod > 0 {
                 HStack(spacing: 8) {
                     Image(systemName: "arrow.up.forward.circle.fill")
                         .font(.system(size: 14))
@@ -593,11 +595,16 @@ struct ActivityView: View {
                                 
                                 VStack(spacing: 12) {
                                     ForEach(group.items) { expense in
-                                        TransactionCard(
-                                            expense: expense,
-                                            category: category(for: expense.categoryID),
-                                            currencyCode: userSession.currentUser?.currency
-                                        )
+                                        Button {
+                                            expenseToShowDetail = expense
+                                        } label: {
+                                            TransactionCard(
+                                                expense: expense,
+                                                category: category(for: expense.categoryID),
+                                                currencyCode: userSession.currentUser?.currency
+                                            )
+                                        }
+                                        .buttonStyle(.plain)
                                         .contextMenu {
                                             Button {
                                                 expenseToEdit = expense
@@ -647,6 +654,20 @@ struct ActivityView: View {
                         }
                     )
                     .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
+                }
+                .sheet(item: $expenseToShowDetail) { expense in
+                    TransactionDetailView(
+                        expense: expense,
+                        category: category(for: expense.categoryID),
+                        currencyCode: userSession.currentUser?.currency,
+                        onEdit: {
+                            expenseToShowDetail = nil
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { expenseToEdit = expense }
+                        },
+                        onDismiss: { expenseToShowDetail = nil }
+                    )
+                    .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
                 }
                 .sheet(item: $expenseToEdit) { expense in
@@ -789,16 +810,17 @@ struct SpendingDonutChartView: View {
     }
     
     /// Determines which metric to show and its label
+    /// Uses available funds (carried-over + income) so previous month balance is always included for calendar-month and pay-day users
     private var displayMetric: (percentage: Double, label: String) {
-        // Case 1: Has income this period - show % of income spent
-        if totalIncome > 0 {
-            return (expensePercentOfIncome, "of income spent")
+        // Case 1: Has available funds (carried-over balance + current income) - show % of that
+        if availableFunds > 0 {
+            let pct = expensePercentOfAvailableFunds
+            if cumulativeBalance > 0 {
+                return (pct, "of available spent")
+            }
+            return (pct, "of income spent")
         }
-        // Case 2: No income this period, but has carried-over balance - show % of available funds
-        if cumulativeBalance > 0 && availableFunds > 0 {
-            return (expensePercentOfAvailableFunds, "of balance used")
-        }
-        // Case 3: No income and no positive balance - show raw expense amount indicator
+        // Case 2: No income and no positive balance
         return (0, "no income yet")
     }
     

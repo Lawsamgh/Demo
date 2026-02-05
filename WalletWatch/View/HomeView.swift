@@ -21,6 +21,7 @@ struct HomeView: View {
     @State private var showCurrencyError = false
     @State private var showAllTransactions = false
     @State private var expenseToEdit: Expense?
+    @State private var expenseToShowDetail: Expense?
     @State private var deleteError: String?
     @State private var showDeleteError = false
     /// Selected year for Month/Year view (e.g. 2025 for "last year")
@@ -288,18 +289,31 @@ struct HomeView: View {
                 return (formatter.string(from: day), dayTotal)
             }
         case .month:
-            guard let monthStart = calendar.date(from: DateComponents(year: selectedYear, month: selectedMonth, day: 1)),
-                  let nextMonth = calendar.date(byAdding: .month, value: 1, to: monthStart),
-                  let lastDay = calendar.date(byAdding: .day, value: -1, to: nextMonth) else {
-                return []
-            }
-            let dayCount = calendar.dateComponents([.day], from: monthStart, to: lastDay).day ?? 28
             let weekCount = 4
+            // When PayDay is set, split the pay cycle (Jan 21–Feb 20) into 4 weeks; otherwise use calendar month.
+            let rangeStart: Date
+            let rangeEnd: Date
+            if userPayDay != nil {
+                rangeStart = periodStart
+                rangeEnd = periodEnd
+            } else {
+                guard let monthStart = calendar.date(from: DateComponents(year: selectedYear, month: selectedMonth, day: 1)),
+                      let nextMonth = calendar.date(byAdding: .month, value: 1, to: monthStart),
+                      let lastDay = calendar.date(byAdding: .day, value: -1, to: nextMonth) else {
+                    return []
+                }
+                rangeStart = monthStart
+                rangeEnd = calendar.date(bySettingHour: 23, minute: 59, second: 59, of: lastDay) ?? lastDay
+            }
+            let startOfRange = calendar.startOfDay(for: rangeStart)
+            let endOfRange = calendar.startOfDay(for: rangeEnd)
+            let dayDiff = calendar.dateComponents([.day], from: startOfRange, to: endOfRange).day ?? 0
+            let dayCount = max(1, dayDiff + 1)
             let daysPerWeek = max(1, (dayCount + weekCount - 1) / weekCount)
             return (0..<weekCount).map { weekIndex in
-                let weekStart = calendar.date(byAdding: .day, value: weekIndex * daysPerWeek, to: monthStart)!
+                let weekStart = calendar.date(byAdding: .day, value: weekIndex * daysPerWeek, to: startOfRange)!
                 let rawWeekEnd = calendar.date(byAdding: .day, value: daysPerWeek - 1, to: weekStart)!
-                let weekEndDate = rawWeekEnd > lastDay ? lastDay : rawWeekEnd
+                let weekEndDate = rawWeekEnd > rangeEnd ? rangeEnd : rawWeekEnd
                 let weekEnd = calendar.date(bySettingHour: 23, minute: 59, second: 59, of: weekEndDate) ?? weekEndDate
                 let weekTotal = filteredExpenses
                     .filter { $0.type == .expense && $0.date >= weekStart && $0.date <= weekEnd }
@@ -341,12 +355,17 @@ struct HomeView: View {
         case .week:
             return 6 // Today is the 7th day (index 6)
         case .month:
-            // Use current week only when viewing the current month; otherwise default to last week
-            if selectedYear == currentYear && selectedMonth == currentMonth {
-                let dayOfMonth = calendar.component(.day, from: now)
-                return min(3, (dayOfMonth - 1) / 7) // W1=0, W2=1, W3=2, W4=3
+            if !isViewingCurrentPeriod { return 3 }
+            if userPayDay != nil {
+                // Pay cycle: which of the 4 weeks contains today?
+                let start = calendar.startOfDay(for: periodStart)
+                let nowStart = calendar.startOfDay(for: now)
+                let dayOffset = calendar.dateComponents([.day], from: start, to: nowStart).day ?? 0
+                let daysPerWeek = max(1, (daysInPeriod + 3) / 4)
+                return min(3, max(0, dayOffset / daysPerWeek))
             }
-            return 3 // Past/future month: default to last week (W4)
+            let dayOfMonth = calendar.component(.day, from: now)
+            return min(3, (dayOfMonth - 1) / 7)
         case .year:
             // Use current month only when viewing the current year; otherwise default to last month
             if selectedYear == currentYear {
@@ -363,7 +382,12 @@ struct HomeView: View {
         case .week:
             return 7
         case .month:
-            // Number of days in the selected month
+            if userPayDay != nil {
+                let start = calendar.startOfDay(for: periodStart)
+                let end = calendar.startOfDay(for: periodEnd)
+                let diff = calendar.dateComponents([.day], from: start, to: end).day ?? 0
+                return max(1, diff + 1)
+            }
             guard let monthStart = calendar.date(from: DateComponents(year: selectedYear, month: selectedMonth, day: 1)),
                   let nextMonth = calendar.date(byAdding: .month, value: 1, to: monthStart),
                   let lastDay = calendar.date(byAdding: .day, value: -1, to: nextMonth) else {
@@ -1002,7 +1026,9 @@ struct HomeView: View {
             }
             
             // Animated Bar Chart (7 days / 4 weeks / 12 months by period)
+            // .id() forces chart to be recreated when period or month/year changes (fixes chart not updating when switching to Month without PayDay)
             SpendingChartView(dailyData: spendingChartData, currencyCode: userSession.currentUser?.currency, initialSelectedIndex: spendingChartInitialSelectedIndex, daysInPeriod: daysInPeriod)
+                .id("\(selectedPeriod.rawValue)-\(selectedYear)-\(selectedMonth)")
         }
     }
     
@@ -1031,21 +1057,40 @@ struct HomeView: View {
             
             VStack(spacing: 12) {
                 ForEach(recentTransactions) { expense in
-                    TransactionCard(expense: expense, category: category(for: expense.categoryID), currencyCode: userSession.currentUser?.currency)
-                        .contextMenu {
-                            Button {
-                                expenseToEdit = expense
-                            } label: {
-                                Label("Edit", systemImage: "pencil")
-                            }
-                            Button(role: .destructive) {
-                                Task { await deleteExpense(expense) }
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
+                    Button {
+                        expenseToShowDetail = expense
+                    } label: {
+                        TransactionCard(expense: expense, category: category(for: expense.categoryID), currencyCode: userSession.currentUser?.currency)
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        Button {
+                            expenseToEdit = expense
+                        } label: {
+                            Label("Edit", systemImage: "pencil")
                         }
+                        Button(role: .destructive) {
+                            Task { await deleteExpense(expense) }
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
                 }
             }
+        }
+        .sheet(item: $expenseToShowDetail) { expense in
+            TransactionDetailView(
+                expense: expense,
+                category: category(for: expense.categoryID),
+                currencyCode: userSession.currentUser?.currency,
+                onEdit: {
+                    expenseToShowDetail = nil
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { expenseToEdit = expense }
+                },
+                onDismiss: { expenseToShowDetail = nil }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showAllTransactions) {
             AllTransactionsView(
@@ -1239,8 +1284,11 @@ struct SpendingChartView: View {
         .onAppear {
             let count = dayLabels.count
             selectedBar = count > 0 ? min(initialSelectedIndex, count - 1) : 0
-            withAnimation(.spring(response: 0.8, dampingFraction: 0.7).delay(0.1)) {
-                animateChart = true
+            // Show bars immediately; small delay so layout is ready for grow animation
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
+                    animateChart = true
+                }
             }
         }
         .onChange(of: dailyData.map(\.amount)) { _, _ in
@@ -1252,6 +1300,7 @@ struct SpendingChartView: View {
             if newCount > 0 {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                     selectedBar = min(initialSelectedIndex, newCount - 1)
+                    animateChart = true
                 }
             }
         }
@@ -1586,6 +1635,7 @@ struct AllTransactionsView: View {
     let currencyCode: String?
     var onDelete: ((Expense) async -> Void)? = nil
     var onEdit: ((Expense) -> Void)? = nil
+    @State private var expenseToShowDetail: Expense?
     
     private func category(for categoryID: String) -> Category? {
         let normalized = categoryID.trimmingCharacters(in: .whitespaces)
@@ -1609,11 +1659,16 @@ struct AllTransactionsView: View {
                 } else {
                     List {
                         ForEach(transactions) { expense in
-                            TransactionCard(
-                                expense: expense,
-                                category: category(for: expense.categoryID),
-                                currencyCode: currencyCode
-                            )
+                            Button {
+                                expenseToShowDetail = expense
+                            } label: {
+                                TransactionCard(
+                                    expense: expense,
+                                    category: category(for: expense.categoryID),
+                                    currencyCode: currencyCode
+                                )
+                            }
+                            .buttonStyle(.plain)
                             .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
@@ -1657,6 +1712,22 @@ struct AllTransactionsView: View {
                         dismiss()
                     }
                 }
+            }
+            .sheet(item: $expenseToShowDetail) { expense in
+                TransactionDetailView(
+                    expense: expense,
+                    category: category(for: expense.categoryID),
+                    currencyCode: currencyCode,
+                    onEdit: {
+                        expenseToShowDetail = nil
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            onEdit?(expense)
+                        }
+                    },
+                    onDismiss: { expenseToShowDetail = nil }
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
             }
         }
     }

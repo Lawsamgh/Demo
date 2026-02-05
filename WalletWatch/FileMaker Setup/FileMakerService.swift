@@ -237,34 +237,38 @@ class FileMakerService {
     
     // MARK: - Private Implementation
     
-    /// Executes a block with a valid session, ensuring cleanup
+    /// Serializes session use so concurrent calls don't race (avoid -999 cancelled from duplicate auth).
+    private let sessionGate = SessionSerialGate()
+    
+    /// Executes a block with a valid session, ensuring cleanup. Only one withSession runs at a time.
     private func withSession<T>(_ operation: @escaping (String) async throws -> T) async throws -> T {
-        // Check if we already have a session
-        let hadToken = sessionManager.hasToken()
-        let token: String
-        
-        if hadToken, let existingToken = sessionManager.token {
-            token = existingToken
-        } else {
-            // Create new session
-            token = try await createNewSession()
-        }
-        
-        let sessionWasCreated = !hadToken
-        
-        do {
-            let result = try await operation(token)
-            // Only close session if we created it for this operation
-            if sessionWasCreated {
-                await closeSessionOnServer(token: token)
+        try await sessionGate.run { [weak self] in
+            guard let self = self else { throw FileMakerError.invalidResponse }
+            // Check if we already have a session
+            let hadToken = self.sessionManager.hasToken()
+            let token: String
+            
+            if hadToken, let existingToken = self.sessionManager.token {
+                token = existingToken
+            } else {
+                // Create new session (only one at a time due to sessionGate)
+                token = try await self.createNewSession()
             }
-            return result
-        } catch {
-            // Always close session on error if we created it
-            if sessionWasCreated {
-                await closeSessionOnServer(token: token)
+            
+            let sessionWasCreated = !hadToken
+            
+            do {
+                let result = try await operation(token)
+                if sessionWasCreated {
+                    await self.closeSessionOnServer(token: token)
+                }
+                return result
+            } catch {
+                if sessionWasCreated {
+                    await self.closeSessionOnServer(token: token)
+                }
+                throw error
             }
-            throw error
         }
     }
     
@@ -995,5 +999,12 @@ class FileMakerService {
             let preview = responseString.count > 500 ? String(responseString.prefix(500)) + "..." : responseString
             print("   Response Body: \(preview)")
         }
+    }
+}
+
+/// Serializes async work so only one task runs at a time (avoids concurrent session creation and -999 cancelled).
+private actor SessionSerialGate {
+    func run<T>(_ work: () async throws -> T) async rethrows -> T {
+        try await work()
     }
 }

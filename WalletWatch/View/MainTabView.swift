@@ -13,14 +13,14 @@ struct MainTabView: View {
     
     enum TabItem: String, CaseIterable {
         case home = "Home"
-        case search = "Search"
+        case search = "Transactions"
         case activity = "Activity"
         case settings = "Settings"
         
         var icon: String {
             switch self {
             case .home: return "house.fill"
-            case .search: return "magnifyingglass"
+            case .search: return "list.bullet.rectangle"
             case .activity: return "chart.bar.fill"
             case .settings: return "gearshape.fill"
             }
@@ -29,7 +29,7 @@ struct MainTabView: View {
         var selectedIcon: String {
             switch self {
             case .home: return "house.fill"
-            case .search: return "magnifyingglass"
+            case .search: return "list.bullet.rectangle"
             case .activity: return "chart.bar.fill"
             case .settings: return "gearshape.fill"
             }
@@ -44,10 +44,10 @@ struct MainTabView: View {
                     Label("Home", systemImage: TabItem.home.icon)
                 }
             
-            SearchView()
+            TransactionView()
                 .tag(TabItem.search)
                 .tabItem {
-                    Label("Search", systemImage: TabItem.search.icon)
+                    Label("Transactions", systemImage: TabItem.search.icon)
                 }
             
             ActivityView()

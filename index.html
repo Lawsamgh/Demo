@@ -1,0 +1,1143 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MaMa - Maintenance Management System</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Work+Sans:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      :root {
+        --primary: #ff6b35;
+        --secondary: #004e89;
+        --accent: #f7c548;
+        --dark: #1a1a2e;
+        --light: #f8f9fa;
+        --success: #06d6a0;
+        --warning: #ffb703;
+        --danger: #ef476f;
+        --neutral: #6c757d;
+
+        --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.1);
+        --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.15);
+        --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.2);
+      }
+
+      body {
+        font-family: "Work Sans", sans-serif;
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        min-height: 100vh;
+        color: var(--dark);
+        overflow-x: hidden;
+      }
+
+      .app-container {
+        display: flex;
+        min-height: 100vh;
+        max-width: 1920px;
+        margin: 0 auto;
+        background: var(--light);
+      }
+
+      /* Sidebar */
+      .sidebar {
+        width: 280px;
+        background: white;
+        box-shadow: var(--shadow-lg);
+        position: fixed;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        z-index: 1000;
+        display: flex;
+        flex-direction: column;
+        transition: transform 0.3s ease;
+      }
+
+      .sidebar-header {
+        background: linear-gradient(135deg, var(--primary) 0%, #e85d2b 100%);
+        padding: 30px 24px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .sidebar-header::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: url('data:image/svg+xml,<svg width="100" height="100" xmlns="http://www.w3.org/2000/svg"><defs><pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M 20 0 L 0 0 0 20" fill="none" stroke="white" stroke-width="0.5" opacity="0.1"/></pattern></defs><rect width="100" height="100" fill="url(%23grid)"/></svg>');
+        opacity: 0.3;
+      }
+
+      .logo {
+        font-family: "Bebas Neue", cursive;
+        font-size: 42px;
+        color: white;
+        letter-spacing: 3px;
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+        position: relative;
+        z-index: 1;
+      }
+
+      .logo-subtitle {
+        color: rgba(255, 255, 255, 0.9);
+        font-size: 12px;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        margin-top: 4px;
+        position: relative;
+        z-index: 1;
+      }
+
+      .nav-menu {
+        flex: 1;
+        padding: 24px 0;
+        overflow-y: auto;
+      }
+
+      .nav-section {
+        margin-bottom: 32px;
+      }
+
+      .nav-section-title {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--neutral);
+        padding: 0 24px;
+        margin-bottom: 12px;
+      }
+
+      .nav-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 24px;
+        color: var(--dark);
+        text-decoration: none;
+        transition: all 0.3s ease;
+        cursor: pointer;
+        position: relative;
+      }
+
+      .nav-item::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 4px;
+        background: var(--primary);
+        transform: scaleY(0);
+        transition: transform 0.3s ease;
+      }
+
+      .nav-item:hover {
+        background: rgba(255, 107, 53, 0.05);
+      }
+
+      .nav-item.active {
+        background: rgba(255, 107, 53, 0.1);
+        color: var(--primary);
+        font-weight: 600;
+      }
+
+      .nav-item.active::before {
+        transform: scaleY(1);
+      }
+
+      .nav-icon {
+        font-size: 20px;
+        width: 24px;
+        text-align: center;
+      }
+
+      .nav-label {
+        flex: 1;
+        font-size: 15px;
+      }
+
+      .nav-badge {
+        background: var(--accent);
+        color: var(--dark);
+        font-size: 11px;
+        font-weight: 700;
+        padding: 2px 8px;
+        border-radius: 10px;
+      }
+
+      .sidebar-footer {
+        padding: 24px;
+        border-top: 1px solid rgba(0, 0, 0, 0.1);
+      }
+
+      .user-profile {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        cursor: pointer;
+        padding: 12px;
+        border-radius: 12px;
+        transition: all 0.3s ease;
+      }
+
+      .user-profile:hover {
+        background: rgba(0, 0, 0, 0.05);
+      }
+
+      .user-avatar {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--primary), var(--accent));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: 700;
+        font-size: 18px;
+      }
+
+      .user-info {
+        flex: 1;
+      }
+
+      .user-name {
+        font-weight: 600;
+        font-size: 14px;
+        margin-bottom: 2px;
+      }
+
+      .user-role {
+        font-size: 12px;
+        color: var(--neutral);
+      }
+
+      /* Main Content */
+      .main-content {
+        flex: 1;
+        margin-left: 280px;
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* Top Bar */
+      .top-bar {
+        background: white;
+        padding: 20px 40px;
+        box-shadow: var(--shadow-sm);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        position: sticky;
+        top: 0;
+        z-index: 100;
+      }
+
+      .search-bar {
+        flex: 1;
+        max-width: 500px;
+        position: relative;
+      }
+
+      .search-input {
+        width: 100%;
+        padding: 12px 20px 12px 48px;
+        border: 2px solid var(--light);
+        border-radius: 12px;
+        font-size: 14px;
+        font-family: "Work Sans", sans-serif;
+        transition: all 0.3s ease;
+      }
+
+      .search-input:focus {
+        outline: none;
+        border-color: var(--primary);
+      }
+
+      .search-icon {
+        position: absolute;
+        left: 16px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 18px;
+        color: var(--neutral);
+      }
+
+      .top-bar-actions {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+
+      .icon-btn {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        border: none;
+        background: var(--light);
+        color: var(--dark);
+        font-size: 20px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        position: relative;
+      }
+
+      .icon-btn:hover {
+        background: rgba(255, 107, 53, 0.1);
+        color: var(--primary);
+      }
+
+      .notification-badge {
+        position: absolute;
+        top: -4px;
+        right: -4px;
+        background: var(--danger);
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        font-size: 10px;
+        font-weight: 700;
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 2px solid white;
+      }
+
+      .create-btn {
+        background: linear-gradient(135deg, var(--primary), #e85d2b);
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 12px;
+        font-weight: 600;
+        font-size: 14px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .create-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(255, 107, 53, 0.3);
+      }
+
+      /* Content Area */
+      .content-area {
+        flex: 1;
+        padding: 40px;
+        overflow-y: auto;
+      }
+
+      .page-header {
+        margin-bottom: 32px;
+      }
+
+      .page-title {
+        font-family: "Bebas Neue", cursive;
+        font-size: 36px;
+        letter-spacing: 1px;
+        margin-bottom: 8px;
+      }
+
+      .page-subtitle {
+        color: var(--neutral);
+        font-size: 15px;
+      }
+
+      /* Stats Grid */
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 24px;
+        margin-bottom: 40px;
+      }
+
+      .stat-card {
+        background: white;
+        border-radius: 20px;
+        padding: 28px;
+        box-shadow: var(--shadow-sm);
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .stat-card::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+      }
+
+      .stat-card.pending::before {
+        background: var(--warning);
+      }
+      .stat-card.active::before {
+        background: var(--primary);
+      }
+      .stat-card.completed::before {
+        background: var(--success);
+      }
+      .stat-card.overdue::before {
+        background: var(--danger);
+      }
+
+      .stat-card:hover {
+        transform: translateY(-4px);
+        box-shadow: var(--shadow-md);
+      }
+
+      .stat-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 16px;
+      }
+
+      .stat-icon {
+        width: 50px;
+        height: 50px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 24px;
+      }
+
+      .stat-card.pending .stat-icon {
+        background: rgba(255, 183, 3, 0.15);
+      }
+
+      .stat-card.active .stat-icon {
+        background: rgba(255, 107, 53, 0.15);
+      }
+
+      .stat-card.completed .stat-icon {
+        background: rgba(6, 214, 160, 0.15);
+      }
+
+      .stat-card.overdue .stat-icon {
+        background: rgba(239, 71, 111, 0.15);
+      }
+
+      .stat-trend {
+        font-size: 13px;
+        font-weight: 600;
+        padding: 4px 10px;
+        border-radius: 8px;
+      }
+
+      .stat-trend.up {
+        background: rgba(6, 214, 160, 0.15);
+        color: var(--success);
+      }
+
+      .stat-trend.down {
+        background: rgba(239, 71, 111, 0.15);
+        color: var(--danger);
+      }
+
+      .stat-number {
+        font-family: "Bebas Neue", cursive;
+        font-size: 48px;
+        line-height: 1;
+        margin-bottom: 8px;
+      }
+
+      .stat-card.pending .stat-number {
+        color: var(--warning);
+      }
+      .stat-card.active .stat-number {
+        color: var(--primary);
+      }
+      .stat-card.completed .stat-number {
+        color: var(--success);
+      }
+      .stat-card.overdue .stat-number {
+        color: var(--danger);
+      }
+
+      .stat-label {
+        font-size: 14px;
+        color: var(--neutral);
+        font-weight: 500;
+      }
+
+      /* Work Orders Table */
+      .section-card {
+        background: white;
+        border-radius: 20px;
+        padding: 32px;
+        box-shadow: var(--shadow-sm);
+        margin-bottom: 32px;
+      }
+
+      .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 24px;
+      }
+
+      .section-title {
+        font-family: "Bebas Neue", cursive;
+        font-size: 28px;
+        letter-spacing: 1px;
+      }
+
+      .section-actions {
+        display: flex;
+        gap: 12px;
+      }
+
+      .filter-btn,
+      .export-btn {
+        padding: 10px 20px;
+        border: 2px solid var(--light);
+        background: white;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: 14px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .filter-btn:hover,
+      .export-btn:hover {
+        border-color: var(--primary);
+        color: var(--primary);
+      }
+
+      .work-orders-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0 12px;
+      }
+
+      .work-orders-table thead th {
+        text-align: left;
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--neutral);
+        padding: 0 16px 16px;
+      }
+
+      .work-orders-table tbody tr {
+        background: var(--light);
+        transition: all 0.3s ease;
+        cursor: pointer;
+      }
+
+      .work-orders-table tbody tr:hover {
+        background: white;
+        box-shadow: var(--shadow-sm);
+        transform: scale(1.01);
+      }
+
+      .work-orders-table tbody td {
+        padding: 20px 16px;
+        border-top: 1px solid rgba(0, 0, 0, 0.05);
+        border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+      }
+
+      .work-orders-table tbody td:first-child {
+        border-left: 1px solid rgba(0, 0, 0, 0.05);
+        border-radius: 12px 0 0 12px;
+        padding-left: 20px;
+      }
+
+      .work-orders-table tbody td:last-child {
+        border-right: 1px solid rgba(0, 0, 0, 0.05);
+        border-radius: 0 12px 12px 0;
+        padding-right: 20px;
+      }
+
+      .order-id {
+        font-family: "Bebas Neue", cursive;
+        font-size: 16px;
+        letter-spacing: 0.5px;
+        color: var(--dark);
+      }
+
+      .order-title-cell {
+        max-width: 300px;
+      }
+
+      .order-title {
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+
+      .order-location {
+        font-size: 13px;
+        color: var(--neutral);
+      }
+
+      .status-badge {
+        padding: 6px 14px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        display: inline-block;
+      }
+
+      .status-badge.new {
+        background: rgba(255, 107, 53, 0.15);
+        color: var(--primary);
+      }
+
+      .status-badge.in-progress {
+        background: rgba(0, 78, 137, 0.15);
+        color: var(--secondary);
+      }
+
+      .status-badge.on-hold {
+        background: rgba(255, 183, 3, 0.15);
+        color: var(--warning);
+      }
+
+      .status-badge.completed {
+        background: rgba(6, 214, 160, 0.15);
+        color: var(--success);
+      }
+
+      .assignee-cell {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .assignee-avatar {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--primary), var(--accent));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: 700;
+        font-size: 14px;
+      }
+
+      .priority-badge {
+        padding: 6px 12px;
+        border-radius: 8px;
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        display: inline-block;
+      }
+
+      .priority-high {
+        background: rgba(239, 71, 111, 0.15);
+        color: var(--danger);
+      }
+
+      .priority-medium {
+        background: rgba(255, 183, 3, 0.15);
+        color: var(--warning);
+      }
+
+      .priority-low {
+        background: rgba(6, 214, 160, 0.15);
+        color: var(--success);
+      }
+
+      .time-cell {
+        color: var(--neutral);
+        font-size: 14px;
+      }
+
+      /* Mobile Responsive */
+      .mobile-menu-btn {
+        display: none;
+        width: 44px;
+        height: 44px;
+        border: none;
+        background: var(--light);
+        border-radius: 12px;
+        font-size: 20px;
+        cursor: pointer;
+      }
+
+      @media (max-width: 1024px) {
+        .sidebar {
+          transform: translateX(-100%);
+        }
+
+        .sidebar.active {
+          transform: translateX(0);
+        }
+
+        .main-content {
+          margin-left: 0;
+        }
+
+        .mobile-menu-btn {
+          display: block;
+        }
+
+        .stats-grid {
+          grid-template-columns: repeat(2, 1fr);
+        }
+
+        .content-area {
+          padding: 24px;
+        }
+
+        .top-bar {
+          padding: 16px 24px;
+        }
+      }
+
+      @media (max-width: 768px) {
+        .stats-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .search-bar {
+          display: none;
+        }
+
+        .work-orders-table {
+          display: none;
+        }
+
+        .mobile-orders {
+          display: block;
+        }
+
+        .section-card {
+          padding: 20px;
+        }
+      }
+
+      /* Mobile Order Cards */
+      .mobile-orders {
+        display: none;
+      }
+
+      .mobile-order-card {
+        background: var(--light);
+        border-radius: 16px;
+        padding: 20px;
+        margin-bottom: 12px;
+        position: relative;
+        overflow: hidden;
+        cursor: pointer;
+        transition: all 0.3s ease;
+      }
+
+      .mobile-order-card::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 4px;
+      }
+
+      .mobile-order-card.priority-high::before {
+        background: var(--danger);
+      }
+      .mobile-order-card.priority-medium::before {
+        background: var(--warning);
+      }
+      .mobile-order-card.priority-low::before {
+        background: var(--success);
+      }
+
+      .mobile-order-card:active {
+        transform: scale(0.98);
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .stat-card,
+      .section-card {
+        animation: fadeIn 0.5s ease forwards;
+      }
+
+      .stat-card:nth-child(1) {
+        animation-delay: 0.1s;
+      }
+      .stat-card:nth-child(2) {
+        animation-delay: 0.2s;
+      }
+      .stat-card:nth-child(3) {
+        animation-delay: 0.3s;
+      }
+      .stat-card:nth-child(4) {
+        animation-delay: 0.4s;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app-container">
+      <!-- Sidebar -->
+      <div class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+          <div class="logo">MAMA</div>
+          <div class="logo-subtitle">Maintenance Manager</div>
+        </div>
+
+        <div class="nav-menu">
+          <div class="nav-section">
+            <div class="nav-section-title">Main Menu</div>
+            <div class="nav-item active">
+              <span class="nav-icon">🏠</span>
+              <span class="nav-label">Dashboard</span>
+            </div>
+            <div class="nav-item">
+              <span class="nav-icon">📋</span>
+              <span class="nav-label">Work Orders</span>
+              <span class="nav-badge">12</span>
+            </div>
+            <div class="nav-item">
+              <span class="nav-icon">📅</span>
+              <span class="nav-label">Schedule</span>
+            </div>
+            <div class="nav-item">
+              <span class="nav-icon">🏢</span>
+              <span class="nav-label">Assets</span>
+            </div>
+            <div class="nav-item">
+              <span class="nav-icon">📦</span>
+              <span class="nav-label">Inventory</span>
+            </div>
+          </div>
+
+          <div class="nav-section">
+            <div class="nav-section-title">Reports & Analytics</div>
+            <div class="nav-item">
+              <span class="nav-icon">📊</span>
+              <span class="nav-label">Analytics</span>
+            </div>
+            <div class="nav-item">
+              <span class="nav-icon">📈</span>
+              <span class="nav-label">Reports</span>
+            </div>
+          </div>
+
+          <div class="nav-section">
+            <div class="nav-section-title">Settings</div>
+            <div class="nav-item">
+              <span class="nav-icon">👥</span>
+              <span class="nav-label">Team</span>
+            </div>
+            <div class="nav-item">
+              <span class="nav-icon">⚙️</span>
+              <span class="nav-label">Settings</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="sidebar-footer">
+          <div class="user-profile">
+            <div class="user-avatar">JM</div>
+            <div class="user-info">
+              <div class="user-name">John Martinez</div>
+              <div class="user-role">Facility Manager</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Content -->
+      <div class="main-content">
+        <!-- Top Bar -->
+        <div class="top-bar">
+          <button class="mobile-menu-btn" onclick="toggleSidebar()">☰</button>
+
+          <div class="search-bar">
+            <span class="search-icon">🔍</span>
+            <input
+              type="text"
+              class="search-input"
+              placeholder="Search work orders, assets, locations..."
+            />
+          </div>
+
+          <div class="top-bar-actions">
+            <button class="icon-btn">
+              🔔
+              <span class="notification-badge">3</span>
+            </button>
+            <button class="icon-btn">💬</button>
+            <button class="create-btn" onclick="alert('Create new work order')">
+              ➕ New Work Order
+            </button>
+          </div>
+        </div>
+
+        <!-- Content Area -->
+        <div class="content-area">
+          <div class="page-header">
+            <h1 class="page-title">Dashboard Overview</h1>
+            <p class="page-subtitle">
+              Monitor and manage all maintenance activities
+            </p>
+          </div>
+
+          <!-- Stats Grid -->
+          <div class="stats-grid">
+            <div class="stat-card pending">
+              <div class="stat-header">
+                <div class="stat-icon">⏳</div>
+                <div class="stat-trend up">↑ 8%</div>
+              </div>
+              <div class="stat-number">12</div>
+              <div class="stat-label">Pending Orders</div>
+            </div>
+
+            <div class="stat-card active">
+              <div class="stat-header">
+                <div class="stat-icon">🔧</div>
+                <div class="stat-trend up">↑ 15%</div>
+              </div>
+              <div class="stat-number">8</div>
+              <div class="stat-label">Active Orders</div>
+            </div>
+
+            <div class="stat-card completed">
+              <div class="stat-header">
+                <div class="stat-icon">✅</div>
+                <div class="stat-trend up">↑ 23%</div>
+              </div>
+              <div class="stat-number">45</div>
+              <div class="stat-label">Completed This Month</div>
+            </div>
+
+            <div class="stat-card overdue">
+              <div class="stat-header">
+                <div class="stat-icon">⚠️</div>
+                <div class="stat-trend down">↓ 12%</div>
+              </div>
+              <div class="stat-number">3</div>
+              <div class="stat-label">Overdue Orders</div>
+            </div>
+          </div>
+
+          <!-- Work Orders Section -->
+          <div class="section-card">
+            <div class="section-header">
+              <h2 class="section-title">Recent Work Orders</h2>
+              <div class="section-actions">
+                <button class="filter-btn">🔽 Filter</button>
+                <button class="export-btn">📥 Export</button>
+              </div>
+            </div>
+
+            <!-- Desktop Table -->
+            <table class="work-orders-table">
+              <thead>
+                <tr>
+                  <th>Order ID</th>
+                  <th>Title & Location</th>
+                  <th>Status</th>
+                  <th>Assignee</th>
+                  <th>Priority</th>
+                  <th>Created</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr onclick="alert('View WO-2024-1547')">
+                  <td><div class="order-id">WO-2024-1547</div></td>
+                  <td class="order-title-cell">
+                    <div class="order-title">HVAC System - Unit 4 Failure</div>
+                    <div class="order-location">📍 Building A - Floor 3</div>
+                  </td>
+                  <td><span class="status-badge new">New</span></td>
+                  <td>
+                    <div class="assignee-cell">
+                      <div class="assignee-avatar">SM</div>
+                      <span>Sarah Miller</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span class="priority-badge priority-high">High</span>
+                  </td>
+                  <td class="time-cell">2 hours ago</td>
+                </tr>
+                <tr onclick="alert('View WO-2024-1546')">
+                  <td><div class="order-id">WO-2024-1546</div></td>
+                  <td class="order-title-cell">
+                    <div class="order-title">Electrical Panel Inspection</div>
+                    <div class="order-location">📍 Building B - Basement</div>
+                  </td>
+                  <td>
+                    <span class="status-badge in-progress">In Progress</span>
+                  </td>
+                  <td>
+                    <div class="assignee-cell">
+                      <div class="assignee-avatar">JD</div>
+                      <span>James Davis</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span class="priority-badge priority-medium">Medium</span>
+                  </td>
+                  <td class="time-cell">5 hours ago</td>
+                </tr>
+                <tr onclick="alert('View WO-2024-1545')">
+                  <td><div class="order-id">WO-2024-1545</div></td>
+                  <td class="order-title-cell">
+                    <div class="order-title">Routine Equipment Maintenance</div>
+                    <div class="order-location">📍 Building C - Floor 2</div>
+                  </td>
+                  <td>
+                    <span class="status-badge in-progress">In Progress</span>
+                  </td>
+                  <td>
+                    <div class="assignee-cell">
+                      <div class="assignee-avatar">RJ</div>
+                      <span>Robert Johnson</span>
+                    </div>
+                  </td>
+                  <td><span class="priority-badge priority-low">Low</span></td>
+                  <td class="time-cell">1 day ago</td>
+                </tr>
+                <tr onclick="alert('View WO-2024-1544')">
+                  <td><div class="order-id">WO-2024-1544</div></td>
+                  <td class="order-title-cell">
+                    <div class="order-title">Plumbing Leak - Office 301</div>
+                    <div class="order-location">📍 Building A - Floor 3</div>
+                  </td>
+                  <td><span class="status-badge on-hold">On Hold</span></td>
+                  <td>
+                    <div class="assignee-cell">
+                      <div class="assignee-avatar">MC</div>
+                      <span>Maria Chen</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span class="priority-badge priority-medium">Medium</span>
+                  </td>
+                  <td class="time-cell">2 days ago</td>
+                </tr>
+                <tr onclick="alert('View WO-2024-1543')">
+                  <td><div class="order-id">WO-2024-1543</div></td>
+                  <td class="order-title-cell">
+                    <div class="order-title">Fire Alarm System Check</div>
+                    <div class="order-location">📍 Building D - All Floors</div>
+                  </td>
+                  <td><span class="status-badge completed">Completed</span></td>
+                  <td>
+                    <div class="assignee-cell">
+                      <div class="assignee-avatar">TB</div>
+                      <span>Tom Brown</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span class="priority-badge priority-high">High</span>
+                  </td>
+                  <td class="time-cell">3 days ago</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <!-- Mobile Cards -->
+            <div class="mobile-orders">
+              <div class="mobile-order-card priority-high">
+                <div class="order-header">
+                  <div class="order-id">WO-2024-1547</div>
+                  <div class="status-badge new">New</div>
+                </div>
+                <div class="order-title">HVAC System - Unit 4 Failure</div>
+                <div class="order-location">📍 Building A - Floor 3</div>
+                <div class="order-footer">
+                  <div class="assignee-cell">
+                    <div class="assignee-avatar">SM</div>
+                    <span>Sarah Miller</span>
+                  </div>
+                  <span class="priority-badge priority-high">High</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // Mobile menu toggle
+      function toggleSidebar() {
+        document.getElementById("sidebar").classList.toggle("active");
+      }
+
+      // Navigation item click handlers
+      document.querySelectorAll(".nav-item").forEach((item) => {
+        item.addEventListener("click", function () {
+          document
+            .querySelectorAll(".nav-item")
+            .forEach((i) => i.classList.remove("active"));
+          this.classList.add("active");
+
+          // Close mobile menu after selection
+          if (window.innerWidth <= 1024) {
+            document.getElementById("sidebar").classList.remove("active");
+          }
+        });
+      });
+
+      // Close sidebar when clicking outside on mobile
+      document.addEventListener("click", function (event) {
+        const sidebar = document.getElementById("sidebar");
+        const menuBtn = document.querySelector(".mobile-menu-btn");
+
+        if (
+          window.innerWidth <= 1024 &&
+          sidebar.classList.contains("active") &&
+          !sidebar.contains(event.target) &&
+          !menuBtn.contains(event.target)
+        ) {
+          sidebar.classList.remove("active");
+        }
+      });
+
+      // Simulate real-time updates
+      setInterval(() => {
+        const badge = document.querySelector(".notification-badge");
+        const currentCount = parseInt(badge.textContent);
+        if (Math.random() > 0.85) {
+          badge.textContent = currentCount + 1;
+        }
+      }, 15000);
+    </script>
+  </body>
+</html>

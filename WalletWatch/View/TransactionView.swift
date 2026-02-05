@@ -1,5 +1,5 @@
 //
-//  SearchView.swift
+//  TransactionView.swift
 //  WalletWatch
 //
 //  Created by PGH_PICT_LAMPENE on 10/01/2026.
@@ -7,7 +7,7 @@
 
 import SwiftUI
 
-struct SearchView: View {
+struct TransactionView: View {
     @StateObject private var userSession = UserSession.shared
     @State private var searchText: String = ""
     @State private var expenses: [Expense] = []
@@ -16,6 +16,7 @@ struct SearchView: View {
     @State private var sortOption: SearchSortOption = .dateNewest
     @State private var showSortMenu = false
     @State private var expenseToEdit: Expense?
+    @State private var expenseToShowDetail: Expense?
     @State private var deleteError: String?
     @State private var showDeleteError = false
     
@@ -39,10 +40,13 @@ struct SearchView: View {
         return userSession.categories.first { $0.id.trimmingCharacters(in: .whitespaces) == normalized }
     }
     
-    /// Base filtered transactions (by search text only)
+    /// Base filtered transactions (all transactions when search is empty, filtered by search text when searching)
     private var baseFilteredTransactions: [Expense] {
         let query = searchText.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !query.isEmpty else { return [] }
+        
+        if query.isEmpty {
+            return expenses
+        }
         
         return expenses.filter { expense in
             let titleMatch = expense.title.lowercased().contains(query)
@@ -136,8 +140,8 @@ struct SearchView: View {
                 Group {
                     if isLoadingExpenses && expenses.isEmpty {
                         searchLoadingSkeleton
-                    } else if searchText.trimmingCharacters(in: .whitespaces).isEmpty {
-                        searchEmptyPrompt
+                    } else if expenses.isEmpty {
+                        emptyTransactionsView
                     } else if baseFilteredTransactions.isEmpty {
                         searchNoResultsView
                     } else {
@@ -145,12 +149,12 @@ struct SearchView: View {
                     }
                 }
             }
-            .navigationTitle("Search")
+            .navigationTitle("Transactions")
             .navigationBarTitleDisplayMode(.large)
             .searchable(text: $searchText, prompt: "Search transactions...")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    if !searchText.trimmingCharacters(in: .whitespaces).isEmpty && !baseFilteredTransactions.isEmpty {
+                    if !baseFilteredTransactions.isEmpty {
                         Menu {
                             ForEach(SearchSortOption.allCases, id: \.self) { option in
                                 Button {
@@ -183,6 +187,20 @@ struct SearchView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
             }
+            .sheet(item: $expenseToShowDetail) { expense in
+                TransactionDetailView(
+                    expense: expense,
+                    category: category(for: expense.categoryID),
+                    currencyCode: userSession.currentUser?.currency,
+                    onEdit: {
+                        expenseToShowDetail = nil
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { expenseToEdit = expense }
+                    },
+                    onDismiss: { expenseToShowDetail = nil }
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            }
             .alert("Delete Error", isPresented: $showDeleteError) {
                 Button("OK", role: .cancel) { }
             } message: {
@@ -193,17 +211,17 @@ struct SearchView: View {
     
     // MARK: - Subviews
     
-    private var searchEmptyPrompt: some View {
+    private var emptyTransactionsView: some View {
         VStack(spacing: 20) {
-            Image(systemName: "magnifyingglass")
+            Image(systemName: "list.bullet.rectangle")
                 .font(.system(size: 60))
                 .foregroundStyle(.secondary)
             
-            Text("Search Transactions")
+            Text("No Transactions")
                 .font(.system(size: 24, weight: .bold))
                 .foregroundStyle(.primary)
             
-            Text("Search by description or category name")
+            Text("Your transactions will appear here")
                 .font(.system(size: 16))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -288,7 +306,7 @@ struct SearchView: View {
     
     private var searchSummaryCard: some View {
         VStack(spacing: 8) {
-            Text("Summary of search results")
+            Text(searchText.trimmingCharacters(in: .whitespaces).isEmpty ? "Summary" : "Summary of search results")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -369,9 +387,15 @@ struct SearchView: View {
     
     private var resultCountLabel: some View {
         HStack {
-            Text("\(filteredTransactions.count) transaction\(filteredTransactions.count == 1 ? "" : "s") found")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(.secondary)
+            if searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+                Text("\(filteredTransactions.count) transaction\(filteredTransactions.count == 1 ? "" : "s")")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("\(filteredTransactions.count) transaction\(filteredTransactions.count == 1 ? "" : "s") found")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
             Spacer()
         }
     }
@@ -400,11 +424,16 @@ struct SearchView: View {
                             
                             VStack(spacing: 12) {
                                 ForEach(group.items) { expense in
-                                    TransactionCard(
-                                        expense: expense,
-                                        category: category(for: expense.categoryID),
-                                        currencyCode: userSession.currentUser?.currency
-                                    )
+                                    Button {
+                                        expenseToShowDetail = expense
+                                    } label: {
+                                        TransactionCard(
+                                            expense: expense,
+                                            category: category(for: expense.categoryID),
+                                            currencyCode: userSession.currentUser?.currency
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
                                     .contextMenu {
                                         Button {
                                             expenseToEdit = expense
@@ -435,7 +464,7 @@ struct SearchView: View {
             let fetched = try await FileMakerService.shared.fetchExpenses(userID: user.userID)
             await MainActor.run { expenses = fetched }
         } catch {
-            print("❌ Failed to load expenses for search: \(error.localizedDescription)")
+            print("❌ Failed to load expenses for transactions: \(error.localizedDescription)")
         }
         isLoadingExpenses = false
     }
@@ -454,6 +483,160 @@ struct SearchView: View {
     }
 }
 
+// MARK: - Transaction Detail (tap to show)
+struct TransactionDetailView: View {
+    let expense: Expense
+    let category: Category?
+    let currencyCode: String?
+    var onEdit: (() -> Void)?
+    var onDismiss: (() -> Void)?
+    
+    private var amountColor: Color {
+        expense.type == .income ? .green : .red
+    }
+    
+    private var categoryColor: Color {
+        colorFromString(category?.displayColor ?? "gray")
+    }
+    
+    private func formatDate(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .none
+        return f.string(from: date)
+    }
+    
+    private func colorFromString(_ name: String) -> Color {
+        switch name.lowercased() {
+        case "red": return .red
+        case "blue": return .blue
+        case "green": return .green
+        case "orange": return .orange
+        case "purple": return .purple
+        case "pink": return .pink
+        case "yellow": return .yellow
+        case "indigo": return .indigo
+        case "teal": return .teal
+        case "cyan": return .cyan
+        case "mint": return .mint
+        case "brown": return .brown
+        default: return .gray
+        }
+    }
+    
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    HStack(spacing: 16) {
+                        Circle()
+                            .fill(categoryColor.opacity(0.2))
+                            .frame(width: 56, height: 56)
+                            .overlay(
+                                Image(systemName: category?.displayIcon ?? Category.iconForName(expense.title))
+                                    .font(.system(size: 24, weight: .medium))
+                                    .foregroundStyle(categoryColor)
+                            )
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(expense.title)
+                                .font(.system(size: 20, weight: .bold))
+                                .foregroundStyle(.primary)
+                            if let cat = category {
+                                Text(cat.name)
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                    }
+                    .padding(20)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(Color(.secondarySystemGroupedBackground))
+                    )
+                    
+                    Text((expense.type == .income ? "+" : "-") + UserSession.formatCurrency(amount: expense.amount, currencyCode: currencyCode))
+                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .foregroundStyle(amountColor)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    
+                    VStack(alignment: .leading, spacing: 16) {
+                        detailRow(label: "Type", value: expense.type.rawValue)
+                        detailRow(label: "Category", value: category?.name ?? "—")
+                        detailRow(label: "Date", value: formatDate(expense.date))
+                        if let pm = expense.paymentMethod, !pm.trimmingCharacters(in: .whitespaces).isEmpty {
+                            detailRow(label: "Payment", value: pm)
+                        }
+                        if let notes = expense.notes, !notes.trimmingCharacters(in: .whitespaces).isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Notes")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                Text(notes)
+                                    .font(.system(size: 16, weight: .regular))
+                                    .foregroundStyle(.primary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(14)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color(.tertiarySystemGroupedBackground))
+                            )
+                        }
+                    }
+                    
+                    if onEdit != nil {
+                        Button {
+                            onEdit?()
+                        } label: {
+                            Label("Edit Transaction", systemImage: "pencil")
+                                .font(.system(size: 17, weight: .semibold))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 16)
+                                .background(RoundedRectangle(cornerRadius: 14).fill(Color.blue))
+                                .foregroundStyle(.white)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.top, 8)
+                    }
+                }
+                .padding(20)
+                .padding(.bottom, 40)
+            }
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("Transaction Details")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        onDismiss?()
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
+            .onDisappear { onDismiss?() }
+        }
+    }
+    
+    private func detailRow(label: String, value: String) -> some View {
+        HStack {
+            Text(label)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 90, alignment: .leading)
+            Text(value)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(.primary)
+            Spacer()
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
+    }
+}
+
 #Preview {
-    SearchView()
+    TransactionView()
 }

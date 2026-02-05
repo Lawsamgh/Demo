@@ -41,6 +41,9 @@ struct OnboardingView: View {
     @State private var showAddCategory = false
     @State private var onboardingExpenses: [Expense] = []
     @State private var savingCurrencyCode: String?
+    @State private var currencyErrorMessage: String?
+    /// Only show a currency as selected after the user taps it on this screen (no auto-select from saved user).
+    @State private var selectedCurrencyOnPage: String?
     
     private var isCurrencySet: Bool {
         let c = userSession.currentUser?.currency ?? ""
@@ -55,10 +58,19 @@ struct OnboardingView: View {
         isCurrencySet && isCategoriesSet
     }
     
+    /// Continue: welcome slide always; currency slide after user taps a row; categories slide when at least one category added.
+    private var canProceedWithContinue: Bool {
+        if currentPage == 0 {
+            return true
+        }
+        if currentPage == 1 {
+            return selectedCurrencyOnPage != nil
+        }
+        return canComplete
+    }
+    
     private let introPages: [(icon: String, title: String, subtitle: String)] = [
-        ("cedisign.circle.fill", "Welcome to WalletWatch", "Track your income and expenses in one place. Stay on top of your finances effortlessly."),
-        ("chart.pie.fill", "See Where Your Money Goes", "View spending by category, trends over time, and insights that help you make smarter choices."),
-        ("bell.badge.fill", "Stay on Track", "Set expense limits and get alerts when you're spending more than planned.")
+        ("cedisign.circle.fill", "Welcome to WalletWatch", "Track your income and expenses in one place. Stay on top of your finances effortlessly.")
     ]
     
     var body: some View {
@@ -81,14 +93,14 @@ struct OnboardingView: View {
                 .padding(.top, 12)
                 
                 TabView(selection: $currentPage) {
-                    currencySelectionPage
-                        .tag(0)
-                    categorySelectionPage
-                        .tag(1)
                     ForEach(0..<introPages.count, id: \.self) { index in
                         onboardingIntroPage(index: index)
-                            .tag(index + 2)
+                            .tag(index)
                     }
+                    currencySelectionPage
+                        .tag(introPages.count)
+                    categorySelectionPage
+                        .tag(introPages.count + 1)
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
                 .animation(.easeInOut(duration: 0.35), value: currentPage)
@@ -153,19 +165,28 @@ struct OnboardingView: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 10) {
                     ForEach(onboardingCurrencyOptions, id: \.code) { option in
-                        currencyOptionRow(option: option)
+                        currencyOptionRow(option: option, selectedCode: selectedCurrencyOnPage)
                     }
                 }
                 .padding(.horizontal, 24)
             }
-            .frame(maxHeight: 240)
+            .frame(minHeight: 380, maxHeight: 400)
             Spacer()
+        }
+        .alert("Cannot Continue", isPresented: Binding(
+            get: { currencyErrorMessage != nil },
+            set: { if !$0 { currencyErrorMessage = nil } }
+        )) {
+            Button("OK") { currencyErrorMessage = nil }
+        } message: {
+            Text(currencyErrorMessage ?? "")
         }
     }
     
-    private func currencyOptionRow(option: (code: String, name: String)) -> some View {
-        let isSelected = userSession.currentUser?.currency == option.code
+    private func currencyOptionRow(option: (code: String, name: String), selectedCode: String?) -> some View {
+        let isSelected = selectedCode == option.code
         return Button {
+            selectedCurrencyOnPage = option.code
             saveCurrency(option.code)
         } label: {
             HStack(spacing: 16) {
@@ -228,9 +249,7 @@ struct OnboardingView: View {
             .frame(maxHeight: 240)
             Spacer()
         }
-        .task {
-            await userSession.fetchCategories()
-        }
+        // Categories are already fetched after login; avoid duplicate/cancelled request (-999) from .task when tab appears.
     }
     
     private func categoryRow(category: Category) -> some View {
@@ -332,7 +351,7 @@ struct OnboardingView: View {
         }
     }
     
-    private var totalPageCount: Int { 2 + introPages.count }
+    private var totalPageCount: Int { introPages.count + 2 }
     
     private var pageIndicator: some View {
         HStack(spacing: 6) {
@@ -347,7 +366,7 @@ struct OnboardingView: View {
     
     private var bottomActions: some View {
         VStack(spacing: 18) {
-            if !canComplete {
+            if currentPage >= 1 && !canComplete {
                 HStack(spacing: 6) {
                     Image(systemName: "info.circle.fill").font(.system(size: 14))
                     Text(mandatorySetupHint).font(.system(size: 13, weight: .medium))
@@ -357,35 +376,28 @@ struct OnboardingView: View {
                 .padding(.horizontal, 16)
             }
             Button {
-                UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
-                showAddExpense = true
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "plus.circle.fill").font(.system(size: 22))
-                    Text("Add your first expense or income").font(.system(size: 17, weight: .semibold))
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                if canComplete {
+                    // Currency + at least one category: finish onboarding → LoginView shows MainTabView (HomeView)
+                    DispatchQueue.main.async { onComplete() }
+                } else if currentPage == 0 {
+                    withAnimation(.easeInOut(duration: 0.35)) { currentPage = 1 }
+                } else if currentPage == 1, selectedCurrencyOnPage != nil {
+                    withAnimation(.easeInOut(duration: 0.35)) { currentPage = 2 }
                 }
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 18)
-                .background(RoundedRectangle(cornerRadius: 16).fill(primaryGradient))
-                .shadow(color: Color.blue.opacity(0.35), radius: 12, x: 0, y: 6)
-            }
-            .buttonStyle(.plain)
-            .scaleEffect(canComplete ? 1 : 0.98)
-            .disabled(!canComplete)
-            .opacity(canComplete ? 1 : 0.6)
-            .animation(.easeInOut(duration: 0.2), value: canComplete)
-            Button {
-                UISelectionFeedbackGenerator().selectionChanged()
-                onComplete()
             } label: {
-                Text("I'll do this later")
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(.secondary)
+                Text(canComplete ? "Finish" : "Continue")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 18)
+                    .background(RoundedRectangle(cornerRadius: 16).fill(primaryGradient))
+                    .shadow(color: Color.blue.opacity(0.35), radius: 12, x: 0, y: 6)
             }
             .buttonStyle(.plain)
-            .disabled(!canComplete)
-            .opacity(canComplete ? 1 : 0.6)
+            .disabled(!canProceedWithContinue)
+            .opacity(canProceedWithContinue ? 1 : 0.6)
+            .animation(.easeInOut(duration: 0.2), value: canProceedWithContinue)
         }
     }
     
@@ -402,14 +414,14 @@ struct OnboardingView: View {
     }
     
     private func saveCurrency(_ currency: String) {
-        guard let user = userSession.currentUser else { return }
+        guard let user = userSession.currentUser else {
+            currencyErrorMessage = "Your session isn’t ready. Please try again."
+            return
+        }
         onUserInteraction?()
         UISelectionFeedbackGenerator().selectionChanged()
         savingCurrencyCode = currency
         userSession.updateCurrency(currency)
-        withAnimation(.easeInOut(duration: 0.35)) {
-            currentPage = 1
-        }
         Task {
             do {
                 try await FileMakerService.shared.updateUserCurrency(userID: user.userID, currency: currency)
